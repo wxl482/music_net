@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import '../../../../theme/theme.dart';
 import '../../player_controller/player_controller.dart';
+import 'playlist_bottom_sheet.dart';
 
 /// 播放控制按钮组件
 class ControlButtonsWidget extends StatelessWidget {
@@ -21,19 +22,19 @@ class ControlButtonsWidget extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                // 随机播放（占位）
+                // 循环模式
                 _buildControlButton(
-                  icon: Icons.shuffle,
-                  color: AppColors.onSurfaceSecondary,
+                  icon: controller.playModeIcon,
+                  color: controller.playModeColor,
                   size: 24.sp,
-                  onPressed: () {},
+                  onPressed: controller.switchPlayMode,
                 ),
                 // 上一曲
                 _buildControlButton(
                   icon: Icons.skip_previous,
                   color: AppColors.onSurface,
                   size: 36.sp,
-                  onPressed: controller.hasPrevious ? controller.previous : null,
+                  onPressed: controller.hasPrevious ? controller.seekToPrevious : null,
                 ),
                 // 播放/暂停
                 _buildPlayButton(),
@@ -42,25 +43,15 @@ class ControlButtonsWidget extends StatelessWidget {
                   icon: Icons.skip_next,
                   color: AppColors.onSurface,
                   size: 36.sp,
-                  onPressed: controller.hasNext ? controller.next : null,
+                  onPressed: controller.hasNext ? controller.seekToNext : null,
                 ),
-                // 循环模式
+                // 播放列表（无文字）
                 _buildControlButton(
-                  icon: controller.playModeIcon,
-                  color: controller.playModeColor,
+                  icon: Icons.playlist_play,
+                  color: AppColors.onSurfaceSecondary,
                   size: 24.sp,
-                  onPressed: controller.switchPlayMode,
+                  onPressed: () => PlaylistBottomSheet.show(Get.context!, controller),
                 ),
-              ],
-            ),
-            SizedBox(height: 24.h),
-            // 额外操作按钮
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildActionButton(Icons.comment, '评论'),
-                _buildActionButton(Icons.share, '分享'),
-                _buildActionButton(Icons.playlist_play, '播放列表'),
               ],
             ),
           ],
@@ -107,21 +98,6 @@ class ControlButtonsWidget extends StatelessWidget {
         minWidth: 48.w,
         minHeight: 48.w,
       ),
-    );
-  }
-
-  Widget _buildActionButton(IconData icon, String label) {
-    return Column(
-      children: [
-        Icon(icon, color: AppColors.onSurfaceSecondary, size: 24.sp),
-        SizedBox(height: 4.h),
-        Text(
-          label,
-          style: AppTextStyles.labelMedium.copyWith(
-            color: AppColors.onSurfaceSecondary,
-          ),
-        ),
-      ],
     );
   }
 }

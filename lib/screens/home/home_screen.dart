@@ -8,6 +8,7 @@ import '../../models/song.dart';
 import '../../models/playlist.dart';
 import '../../services/api/kugou_api_service.dart';
 import '../../services/api/kugou_api_service.dart' show RankItem;
+import '../playlist/playlist_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -335,7 +336,15 @@ class _HomeScreenState extends State<HomeScreen> with AutomaticKeepAliveClientMi
               return PlaylistCard(
                 playlist: playlists[index],
                 onTap: () {
-                  // TODO: 跳转到歌单详情
+                  final collectionId = playlists[index].globalCollectionId.isNotEmpty
+                      ? playlists[index].globalCollectionId
+                      : playlists[index].id;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PlaylistDetailScreen(playlistId: collectionId),
+                    ),
+                  );
                 },
               );
             },

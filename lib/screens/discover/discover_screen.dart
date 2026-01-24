@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:provider/provider.dart';
+import 'package:get/get.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../providers/online_music_provider.dart';
-import '../../providers/player_provider.dart';
+import '../../controllers/online_music_controller.dart';
 import '../../models/song.dart';
 import '../../models/playlist.dart';
 import '../../theme/theme.dart';
 import '../../services/api/kugou_api_service.dart';
+import '../../utils/image_utils.dart';
+import '../../app.dart';
+import '../playlist/playlist_detail_screen.dart';
+import '../search/search_screen.dart';
+import '../../modules/player/player_controller/player_controller.dart';
 
 /// 发现/在线音乐页面
 class DiscoverScreen extends StatefulWidget {
@@ -19,13 +23,15 @@ class DiscoverScreen extends StatefulWidget {
 
 class _DiscoverScreenState extends State<DiscoverScreen> {
   final TextEditingController _searchController = TextEditingController();
+  late final OnlineMusicController _onlineController;
 
   @override
   void initState() {
     super.initState();
+    _onlineController = Get.find<OnlineMusicController>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<OnlineMusicProvider>().fetchRecommendPlaylists();
-      context.read<OnlineMusicProvider>().fetchRankList();
+      _onlineController.fetchRecommendPlaylists();
+      _onlineController.fetchRankList();
     });
   }
 
@@ -50,10 +56,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
           IconButton(
             icon: const Icon(Icons.search, color: AppColors.onSurface),
             onPressed: () {
-              showSearch(
-                context: context,
-                delegate: MusicSearchDelegate(),
-              );
+              Get.to(() => const SearchScreen());
             },
           ),
         ],
@@ -108,26 +111,25 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Widget _buildRecommendPlaylists() {
-    return Consumer<OnlineMusicProvider>(
-      builder: (context, provider, child) {
-        if (provider.isLoadingPlaylists) {
-          return Center(
-            child: Padding(
-              padding: EdgeInsets.all(20.w),
-              child: const CircularProgressIndicator(color: AppColors.primary),
-            ),
-          );
-        }
+    return Obx(() {
+      if (_onlineController.isLoadingPlaylists.value) {
+        return Center(
+          child: Padding(
+            padding: EdgeInsets.all(20.w),
+            child: const CircularProgressIndicator(color: AppColors.primary),
+          ),
+        );
+      }
 
-        final playlists = provider.recommendPlaylists;
-        if (playlists.isEmpty) {
-          return _buildEmptyView('推荐歌单');
-        }
+      final playlists = _onlineController.recommendPlaylists;
+      if (playlists.isEmpty) {
+        return _buildEmptyView('推荐歌单');
+      }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
               padding: EdgeInsets.symmetric(horizontal: 16.w),
               child: Row(
                 children: [
@@ -161,7 +163,15 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   Widget _buildPlaylistCard(Playlist playlist) {
     return GestureDetector(
       onTap: () {
-        // TODO: 跳转到歌单详情
+        final collectionId = playlist.globalCollectionId.isNotEmpty
+            ? playlist.globalCollectionId
+            : playlist.id;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PlaylistDetailScreen(playlistId: collectionId),
+          ),
+        );
       },
       child: Container(
         width: 140.w,
@@ -172,7 +182,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(8.r),
               child: CachedNetworkImage(
-                imageUrl: playlist.coverUrl ?? '',
+                imageUrl: ImageUtils.replaceImageSize(playlist.coverUrl ?? '', 140.w),
                 width: 140.w,
                 height: 140.h,
                 fit: BoxFit.cover,
@@ -211,61 +221,57 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 
   Widget _buildRankList() {
-    return Consumer<OnlineMusicProvider>(
-      builder: (context, provider, child) {
-        if (provider.isLoadingRank) {
-          return Center(
-            child: Padding(
-              padding: EdgeInsets.all(20.w),
-              child: const CircularProgressIndicator(color: AppColors.primary),
-            ),
-          );
-        }
-
-        final ranks = provider.rankList;
-        if (ranks.isEmpty) {
-          return _buildEmptyView('排行榜');
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.w),
-              child: Row(
-                children: [
-                  const Icon(Icons.bar_chart, color: Colors.orange),
-                  SizedBox(width: 8.w),
-                  Text(
-                    '排行榜',
-                    style: AppTextStyles.titleLarge,
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 16.h),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: EdgeInsets.symmetric(horizontal: 16.w),
-              itemCount: ranks.length,
-              itemBuilder: (context, index) {
-                return _buildRankCard(ranks[index], index + 1);
-              },
-            ),
-          ],
+    return Obx(() {
+      if (_onlineController.isLoadingRank.value) {
+        return Center(
+          child: Padding(
+            padding: EdgeInsets.all(20.w),
+            child: const CircularProgressIndicator(color: AppColors.primary),
+          ),
         );
-      },
-    );
+      }
+
+      final ranks = _onlineController.rankList;
+      if (ranks.isEmpty) {
+        return _buildEmptyView('排行榜');
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.w),
+            child: Row(
+              children: [
+                const Icon(Icons.bar_chart, color: Colors.orange),
+                SizedBox(width: 8.w),
+                Text(
+                  '排行榜',
+                  style: AppTextStyles.titleLarge,
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 16.h),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.symmetric(horizontal: 16.w),
+            itemCount: ranks.length,
+            itemBuilder: (context, index) {
+              return _buildRankCard(ranks[index], index + 1);
+            },
+          ),
+        ],
+      );
+    });
   }
 
   Widget _buildRankCard(RankItem rank, int index) {
     return GestureDetector(
-      onTap: () async {
-        final songs = await context.read<OnlineMusicProvider>().getRankSongs(rank.id);
-        if (mounted && songs.isNotEmpty) {
-          _showRankSongsDialog(rank.name, songs);
-        }
+      onTap: () {
+        // 跳转到排行榜详情页面
+        Get.toNamed(AppRoutes.rankDetail, arguments: rank.id);
       },
       child: Container(
         margin: EdgeInsets.only(bottom: 12.h),
@@ -313,7 +319,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                   ),
                   SizedBox(height: 4.h),
                   Text(
-                    '${rank.songCount} 首歌曲',
+                    rank.updateText,
                     style: AppTextStyles.bodySmall.copyWith(
                       color: Colors.white.withValues(alpha: 0.7),
                     ),
@@ -358,13 +364,11 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                 title: Text(songs[index].title),
                 subtitle: Text(songs[index].artist),
                 onTap: () async {
-                  final playerProvider = context.read<PlayerProvider>();
-                  final url = await context.read<OnlineMusicProvider>().playSong(songs[index]);
-                  if (url != null) {
-                    final updatedSong = songs[index].copyWith(audioUrl: url);
-                    await playerProvider.playSong(updatedSong);
-                    Navigator.pop(context);
-                  }
+                  final playerController = Get.find<PlayerController>();
+                  await playerController.playSong(songs[index]);
+                  Navigator.pop(context);
+                  // 跳转到播放页面
+                  Get.toNamed(AppRoutes.player);
                 },
               );
             },
@@ -410,6 +414,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
 
 /// 音乐搜索Delegate
 class MusicSearchDelegate extends SearchDelegate {
+  final OnlineMusicController onlineController;
+
+  MusicSearchDelegate({required this.onlineController});
+
   @override
   List<Widget> buildActions(BuildContext context) {
     return [
@@ -448,76 +456,74 @@ class MusicSearchDelegate extends SearchDelegate {
       return _buildHistoryView(context);
     }
 
-    return Consumer<OnlineMusicProvider>(
-      builder: (context, provider, child) {
-        if (provider.isSearching) {
-          return const Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          );
-        }
+    return Obx(() {
+      if (onlineController.isSearching.value) {
+        return const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        );
+      }
 
-        final results = provider.searchResults;
-        if (results.isEmpty && query.isNotEmpty && !provider.isSearching) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.music_off,
-                  size: 60.sp,
+      final results = onlineController.searchResults;
+      if (results.isEmpty && query.isNotEmpty && !onlineController.isSearching.value) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.music_off,
+                size: 60.sp,
+                color: AppColors.onSurfaceSecondary,
+              ),
+              SizedBox(height: 16.h),
+              Text(
+                '未找到相关音乐',
+                style: AppTextStyles.titleLarge,
+              ),
+              SizedBox(height: 8.h),
+              Text(
+                '请尝试其他关键词',
+                style: AppTextStyles.bodyMedium.copyWith(
                   color: AppColors.onSurfaceSecondary,
                 ),
-                SizedBox(height: 16.h),
-                Text(
-                  '未找到相关音乐',
-                  style: AppTextStyles.titleLarge,
-                ),
-                SizedBox(height: 8.h),
-                Text(
-                  '请尝试其他关键词',
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: AppColors.onSurfaceSecondary,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        if (results.isEmpty) {
-          return _buildHistoryView(context);
-        }
-
-        return ListView.builder(
-          padding: EdgeInsets.all(16.w),
-          itemCount: results.length,
-          itemBuilder: (context, index) {
-            return _buildSearchResultItem(results[index], index, context);
-          },
+              ),
+            ],
+          ),
         );
-      },
-    );
+      }
+
+      if (results.isEmpty) {
+        return _buildHistoryView(context);
+      }
+
+      return ListView.builder(
+        padding: EdgeInsets.all(16.w),
+        itemCount: results.length,
+        itemBuilder: (context, index) {
+          return _buildSearchResultItem(results[index], index, context);
+        },
+      );
+    });
   }
 
   Widget _buildSearchResultItem(Song song, int index, BuildContext context) {
     return GestureDetector(
       onTap: () async {
         try {
-          final playerProvider = context.read<PlayerProvider>();
-          final url = await context.read<OnlineMusicProvider>().playSong(song);
-          if (url != null) {
-            final updatedSong = song.copyWith(audioUrl: url);
-            await playerProvider.playSong(updatedSong);
-            close(context, null);
-          } else {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('获取播放链接失败')),
-              );
-            }
-          }
+          final playerController = Get.find<PlayerController>();
+          await playerController.playSong(song);
+          close(context, null);
+          // 跳转到播放页面
+          Get.toNamed(AppRoutes.player);
         } catch (e) {
-          // 忽略错误
+          if (context.mounted) {
+            Get.snackbar(
+              '错误',
+              '播放失败: $e',
+              snackPosition: SnackPosition.TOP,
+              backgroundColor: Colors.red.withValues(alpha: 0.8),
+              colorText: Colors.white,
+            );
+          }
         }
       },
       child: Container(
@@ -537,12 +543,18 @@ class MusicSearchDelegate extends SearchDelegate {
             SizedBox(width: 12.w),
             ClipRRect(
               borderRadius: BorderRadius.circular(6.r),
-              child: song.coverUrl != null
+              child: (song.coverUrl != null && song.coverUrl!.isNotEmpty)
                   ? CachedNetworkImage(
-                      imageUrl: song.coverUrl!,
+                      imageUrl: ImageUtils.replaceImageSize(song.coverUrl!, 48.w),
                       width: 48.w,
                       height: 48.h,
                       fit: BoxFit.cover,
+                      errorWidget: (context, url, error) => Container(
+                        width: 48.w,
+                        height: 48.h,
+                        color: AppColors.surfaceVariant,
+                        child: const Icon(Icons.music_note, color: Colors.white),
+                      ),
                     )
                   : Container(
                       width: 48.w,

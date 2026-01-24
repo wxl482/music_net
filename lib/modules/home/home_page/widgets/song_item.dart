@@ -47,23 +47,29 @@ class SongItem extends StatelessWidget {
             // Cover
             ClipRRect(
               borderRadius: BorderRadius.circular(8.r),
-              child: song.coverUrl != null
+              child: (song.coverUrl != null && song.coverUrl!.isNotEmpty)
                   ? song.isLocal
                       ? Image.file(
                           File(song.coverUrl!),
                           width: 48.w,
-                          height: 48.h,
+                          height: 48.w,
                           fit: BoxFit.cover,
                         )
                       : CachedNetworkImage(
                           imageUrl: song.coverUrl!,
                           width: 48.w,
-                          height: 48.h,
+                          height: 48.w,
                           fit: BoxFit.cover,
+                          errorWidget: (context, url, error) => Container(
+                            width: 48.w,
+                            height: 48.w,
+                            color: AppColors.surfaceVariant,
+                            child: const Icon(Icons.music_note, color: Colors.white),
+                          ),
                         )
                   : Container(
                       width: 48.w,
-                      height: 48.h,
+                      height: 48.w,
                       color: AppColors.surfaceVariant,
                       child: const Icon(Icons.music_note, color: Colors.white),
                     ),

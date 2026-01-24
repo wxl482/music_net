@@ -6,6 +6,7 @@ class Album {
   final String artistId;
   final String publishDate;
   final int songCount;
+  final String? intro;
 
   Album({
     required this.id,
@@ -15,6 +16,7 @@ class Album {
     this.artistId = '',
     this.publishDate = '',
     this.songCount = 0,
+    this.intro,
   });
 
   String get publishYear {
@@ -36,6 +38,7 @@ class Album {
       artistId: json['singerid']?.toString() ?? json['artistId']?.toString() ?? '',
       publishDate: json['publishtime'] ?? json['publishDate'] ?? '',
       songCount: json['songcount'] ?? json['size'] ?? 0,
+      intro: json['intro'] ?? json['introduction'],
     );
   }
 
@@ -47,6 +50,7 @@ class Album {
     String? artistId,
     String? publishDate,
     int? songCount,
+    String? intro,
   }) {
     return Album(
       id: id ?? this.id,
@@ -56,6 +60,7 @@ class Album {
       artistId: artistId ?? this.artistId,
       publishDate: publishDate ?? this.publishDate,
       songCount: songCount ?? this.songCount,
+      intro: intro ?? this.intro,
     );
   }
 }

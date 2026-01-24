@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../models/playlist.dart';
 import '../../../theme/theme.dart';
+import '../../../utils/image_utils.dart';
 
 class PlaylistCard extends StatelessWidget {
   final Playlist playlist;
@@ -18,7 +20,7 @@ class PlaylistCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: SizedBox(
-        width: 140,
+        width: 140.w,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -30,9 +32,9 @@ class PlaylistCard extends StatelessWidget {
                 child: Stack(
                   children: [
                     Positioned.fill(
-                      child: playlist.coverUrl != null
+                      child: (playlist.coverUrl != null && playlist.coverUrl!.isNotEmpty)
                           ? CachedNetworkImage(
-                              imageUrl: playlist.coverUrl!,
+                              imageUrl: ImageUtils.replaceImageSize(playlist.coverUrl!, 140.w),
                               width: double.infinity,
                               height: double.infinity,
                               fit: BoxFit.cover,
@@ -44,6 +46,10 @@ class PlaylistCard extends StatelessWidget {
                                     strokeWidth: 2,
                                   ),
                                 ),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                color: AppColors.surfaceVariant,
+                                child: const Icon(Icons.music_note, color: Colors.white),
                               ),
                             )
                           : Container(

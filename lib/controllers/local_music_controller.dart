@@ -1,25 +1,19 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
-import '../../models/song.dart';
-import '../../services/local/music_scanner_service.dart';
 import 'package:flutter/services.dart';
+import 'package:get/get.dart';
+import '../models/song.dart';
+import '../services/local/music_scanner_service.dart';
 
-/// 本地音乐Provider - 管理本地音乐库
-class LocalMusicProvider with ChangeNotifier {
+/// 本地音乐控制器 - 使用 GetX 管理本地音乐库
+class LocalMusicController extends GetxController {
   final MusicScannerService _scanner = MusicScannerService();
 
-  List<Song> _localSongs = [];
-  List<Song> _recentScanned = [];
-  bool _isScanning = false;
-  String _scanStatus = '';
-  double _scanProgress = 0;
-
-  // Getters
-  List<Song> get localSongs => _localSongs;
-  List<Song> get recentScanned => _recentScanned;
-  bool get isScanning => _isScanning;
-  String get scanStatus => _scanStatus;
-  double get scanProgress => _scanProgress;
+  // 响应式状态
+  final RxList<Song> localSongs = <Song>[].obs;
+  final RxList<Song> recentScanned = <Song>[].obs;
+  final RxBool isScanning = false.obs;
+  final RxString scanStatus = ''.obs;
+  final RxDouble scanProgress = 0.0.obs;
 
   /// 检查并请求存储权限
   Future<bool> checkPermission() async {
@@ -50,48 +44,41 @@ class LocalMusicProvider with ChangeNotifier {
 
   /// 扫描本地音乐
   Future<void> scanLocalMusic() async {
-    if (_isScanning) return;
+    if (isScanning.value) return;
 
     // 清空旧数据，确保重新扫描完全替换
-    _localSongs = [];
-    _recentScanned = [];
-    notifyListeners();
+    localSongs.clear();
+    recentScanned.clear();
 
     // 检查权限
-    _scanStatus = '正在请求权限...';
-    notifyListeners();
+    scanStatus.value = '正在请求权限...';
 
     final hasPermission = await checkPermission();
     if (!hasPermission) {
-      _scanStatus = '需要存储权限才能扫描本地音乐';
-      notifyListeners();
+      scanStatus.value = '需要存储权限才能扫描本地音乐';
       return;
     }
 
-    _isScanning = true;
-    _scanStatus = '正在扫描...';
-    _scanProgress = 0;
-    notifyListeners();
+    isScanning.value = true;
+    scanStatus.value = '正在扫描...';
+    scanProgress.value = 0;
 
     try {
       // 获取扫描目录
       final directories = await _scanner.getMusicDirectories();
 
       if (directories.isEmpty) {
-        _scanStatus = '未找到可扫描的目录';
-        _isScanning = false;
-        notifyListeners();
+        scanStatus.value = '未找到可扫描的目录';
+        isScanning.value = false;
         return;
       }
 
-      _scanStatus = '正在扫描 ${directories.length} 个目录...';
-      notifyListeners();
+      scanStatus.value = '正在扫描 ${directories.length} 个目录...';
 
       // 扫描音乐文件
       final files = await _scanner.scanMusicFiles(directories);
       final totalFiles = files.length;
-      _scanStatus = '找到 $totalFiles 首音乐';
-      notifyListeners();
+      scanStatus.value = '找到 $totalFiles 首音乐';
 
       // 转换文件为Song对象
       final songs = <Song>[];
@@ -101,36 +88,32 @@ class LocalMusicProvider with ChangeNotifier {
         songs.add(song);
 
         // 更新进度
-        _scanProgress = (i + 1) / totalFiles;
-        _scanStatus = '正在处理 ${i + 1}/$totalFiles';
-        if (i % 10 == 0) {
-          notifyListeners();
-        }
+        scanProgress.value = (i + 1) / totalFiles;
+        scanStatus.value = '正在处理 ${i + 1}/$totalFiles';
       }
 
       // 按标题排序
       songs.sort((a, b) => a.title.compareTo(b.title));
 
-      _localSongs = songs;
-      _recentScanned = songs.take(50).toList();
-      _scanStatus = '扫描完成，共 ${songs.length} 首本地音乐';
+      localSongs.value = songs;
+      recentScanned.value = songs.take(50).toList();
+      scanStatus.value = '扫描完成，共 ${songs.length} 首本地音乐';
     } catch (e) {
-      _scanStatus = '扫描出错: $e';
+      scanStatus.value = '扫描出错: $e';
     } finally {
-      _isScanning = false;
-      notifyListeners();
+      isScanning.value = false;
     }
   }
 
   /// 获取所有本地音乐
   List<Song> getAllLocalSongs() {
-    return _localSongs;
+    return localSongs.toList();
   }
 
   /// 按歌手分组
   Map<String, List<Song>> getSongsByArtist() {
     final Map<String, List<Song>> grouped = {};
-    for (final song in _localSongs) {
+    for (final song in localSongs) {
       grouped.putIfAbsent(song.artist, () => []).add(song);
     }
     return grouped;
@@ -139,7 +122,7 @@ class LocalMusicProvider with ChangeNotifier {
   /// 按专辑分组
   Map<String, List<Song>> getSongsByAlbum() {
     final Map<String, List<Song>> grouped = {};
-    for (final song in _localSongs) {
+    for (final song in localSongs) {
       grouped.putIfAbsent(song.album, () => []).add(song);
     }
     return grouped;
@@ -147,9 +130,9 @@ class LocalMusicProvider with ChangeNotifier {
 
   /// 搜索本地音乐
   List<Song> searchLocalSongs(String query) {
-    if (query.isEmpty) return _localSongs;
+    if (query.isEmpty) return localSongs.toList();
     final lowerQuery = query.toLowerCase();
-    return _localSongs
+    return localSongs
         .where((song) =>
             song.title.toLowerCase().contains(lowerQuery) ||
             song.artist.toLowerCase().contains(lowerQuery) ||
@@ -159,50 +142,46 @@ class LocalMusicProvider with ChangeNotifier {
 
   /// 添加本地音乐到播放列表
   List<Song> addToPlaylist(List<String> songIds) {
-    return _localSongs
+    return localSongs
         .where((song) => songIds.contains(song.id))
         .toList();
   }
 
   /// 清空本地音乐
   void clearLocalMusic() {
-    _localSongs = [];
-    _recentScanned = [];
-    _scanStatus = '';
-    _scanProgress = 0;
-    notifyListeners();
+    localSongs.clear();
+    recentScanned.clear();
+    scanStatus.value = '';
+    scanProgress.value = 0;
   }
 
   /// 添加单个本地音乐
   void addLocalSong(Song song) {
-    if (_localSongs.any((s) => s.id == song.id)) return;
+    if (localSongs.any((s) => s.id == song.id)) return;
 
-    _localSongs.add(song);
-    _localSongs.sort((a, b) => a.title.compareTo(b.title));
-    _scanStatus = '已添加 ${_localSongs.length} 首本地音乐';
-    notifyListeners();
+    localSongs.add(song);
+    localSongs.sort((a, b) => a.title.compareTo(b.title));
+    scanStatus.value = '已添加 ${localSongs.length} 首本地音乐';
   }
 
   /// 添加多个本地音乐
   void addLocalSongs(List<Song> songs) {
     for (final song in songs) {
-      if (!_localSongs.any((s) => s.id == song.id)) {
-        _localSongs.add(song);
+      if (!localSongs.any((s) => s.id == song.id)) {
+        localSongs.add(song);
       }
     }
-    _localSongs.sort((a, b) => a.title.compareTo(b.title));
-    _scanStatus = '已添加 ${_localSongs.length} 首本地音乐';
-    notifyListeners();
+    localSongs.sort((a, b) => a.title.compareTo(b.title));
+    scanStatus.value = '已添加 ${localSongs.length} 首本地音乐';
   }
 
   /// 从列表中移除本地音乐
   void removeLocalSong(String songId) {
-    _localSongs.removeWhere((song) => song.id == songId);
-    if (_localSongs.isEmpty) {
-      _scanStatus = '';
+    localSongs.removeWhere((song) => song.id == songId);
+    if (localSongs.isEmpty) {
+      scanStatus.value = '';
     } else {
-      _scanStatus = '共 ${_localSongs.length} 首本地音乐';
+      scanStatus.value = '共 ${localSongs.length} 首本地音乐';
     }
-    notifyListeners();
   }
 }

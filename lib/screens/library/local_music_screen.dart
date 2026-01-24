@@ -1,13 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import '../../providers/local/local_music_provider.dart';
-import '../../providers/player_provider.dart';
+import 'package:get/get.dart';
+import '../../controllers/local_music_controller.dart';
+import '../../modules/player/player_controller/player_controller.dart';
 import '../../services/local/music_scanner_service.dart';
 import '../../theme/theme.dart';
 import '../../models/song.dart';
+import '../../app.dart';
 
 /// 本地音乐页面
 class LocalMusicScreen extends StatefulWidget {
@@ -19,6 +20,18 @@ class LocalMusicScreen extends StatefulWidget {
 
 class _LocalMusicScreenState extends State<LocalMusicScreen> {
   final TextEditingController _searchController = TextEditingController();
+  late final LocalMusicController _localController;
+  late final PlayerController _playerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _localController = Get.find<LocalMusicController>();
+    _playerController = Get.find<PlayerController>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndScan();
+    });
+  }
 
   @override
   void dispose() {
@@ -26,18 +39,9 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
     super.dispose();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndScan();
-    });
-  }
-
   Future<void> _checkAndScan() async {
-    final localProvider = context.read<LocalMusicProvider>();
-    if (localProvider.localSongs.isEmpty && !localProvider.isScanning) {
-      localProvider.scanLocalMusic();
+    if (_localController.localSongs.isEmpty && !_localController.isScanning.value) {
+      _localController.scanLocalMusic();
     }
   }
 
@@ -66,37 +70,35 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
           IconButton(
             icon: const Icon(Icons.refresh, color: AppColors.onSurface),
             onPressed: () {
-              context.read<LocalMusicProvider>().scanLocalMusic();
+              _localController.scanLocalMusic();
             },
           ),
           // 手动选择按钮
           IconButton(
             icon: const Icon(Icons.add_circle_outline, color: AppColors.onSurface),
-            onPressed: () => _pickAudioFiles(context),
+            onPressed: () => _pickAudioFiles(),
           ),
         ],
       ),
-      body: Consumer<LocalMusicProvider>(
-        builder: (context, localProvider, child) {
-          if (localProvider.isScanning) {
-            return _buildScanningView(localProvider);
-          }
+      body: Obx(() {
+        if (_localController.isScanning.value) {
+          return _buildScanningView();
+        }
 
-          return _buildContent(localProvider);
-        },
-      ),
+        return _buildContent();
+      }),
     );
   }
 
   /// 根据状态显示内容
-  Widget _buildContent(LocalMusicProvider provider) {
-    if (provider.localSongs.isEmpty) {
+  Widget _buildContent() {
+    if (_localController.localSongs.isEmpty) {
       return _buildEmptyView();
     }
-    return _buildMusicList(provider);
+    return _buildMusicList();
   }
 
-  Widget _buildScanningView(LocalMusicProvider provider) {
+  Widget _buildScanningView() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -105,21 +107,28 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
             color: AppColors.primary,
           ),
           SizedBox(height: 24.h),
-          Text(
-            provider.scanStatus,
+          Obx(() => Text(
+            _localController.scanStatus.value,
             style: AppTextStyles.bodyLarge,
-          ),
-          if (provider.scanProgress > 0) ...[
-            SizedBox(height: 16.h),
-            SizedBox(
-              width: 200.w,
-              child: LinearProgressIndicator(
-                value: provider.scanProgress,
-                backgroundColor: AppColors.surfaceVariant,
-                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-              ),
-            ),
-          ],
+          )),
+          Obx(() {
+            if (_localController.scanProgress.value > 0) {
+              return Column(
+                children: [
+                  SizedBox(height: 16.h),
+                  SizedBox(
+                    width: 200.w,
+                    child: LinearProgressIndicator(
+                      value: _localController.scanProgress.value,
+                      backgroundColor: AppColors.surfaceVariant,
+                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    ),
+                  ),
+                ],
+              );
+            }
+            return const SizedBox.shrink();
+          }),
         ],
       ),
     );
@@ -151,9 +160,9 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
           // 扫描按钮
           ElevatedButton.icon(
             onPressed: () {
-              context.read<LocalMusicProvider>().scanLocalMusic();
+              _localController.scanLocalMusic();
             },
-            icon: Icon(Icons.folder_open, color: Colors.black),
+            icon: const Icon(Icons.folder_open, color: Colors.black),
             label: const Text('扫描本地音乐', style: TextStyle(color: Colors.black)),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -163,7 +172,7 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
           SizedBox(height: 16.h),
           // 手动选择按钮
           OutlinedButton.icon(
-            onPressed: () => _pickAudioFiles(context),
+            onPressed: () => _pickAudioFiles(),
             icon: const Icon(Icons.add_circle_outline, color: AppColors.onSurface),
             label: const Text('选择音乐文件'),
             style: OutlinedButton.styleFrom(
@@ -176,7 +185,7 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
   }
 
   /// 手动选择音频文件
-  Future<void> _pickAudioFiles(BuildContext context) async {
+  Future<void> _pickAudioFiles() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -185,13 +194,12 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
       );
 
       if (result != null && result.files.isNotEmpty) {
-        final localProvider = context.read<LocalMusicProvider>();
         final scanner = MusicScannerService();
 
         for (final file in result.files) {
           if (file.path != null) {
             final song = await scanner.fileToSong(File(file.path!));
-            localProvider.addLocalSong(song);
+            _localController.addLocalSong(song);
           }
         }
 
@@ -210,18 +218,16 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
     }
   }
 
-  Widget _buildMusicList(LocalMusicProvider provider) {
-    final songs = provider.localSongs;
-
+  Widget _buildMusicList() {
     return Column(
       children: [
         // 顶部操作栏
-        Padding(
+        Obx(() => Padding(
           padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
           child: Row(
             children: [
               Text(
-                '共 ${songs.length} 首',
+                '共 ${_localController.localSongs.length} 首',
                 style: AppTextStyles.bodyMedium.copyWith(
                   color: AppColors.onSurfaceSecondary,
                 ),
@@ -229,123 +235,123 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
               const Spacer(),
               // 添加更多按钮
               TextButton.icon(
-                onPressed: () => _pickAudioFiles(context),
+                onPressed: () => _pickAudioFiles(),
                 icon: Icon(Icons.add, size: 18.sp),
                 label: const Text('添加更多'),
               ),
             ],
           ),
-        ),
+        )),
         // 歌曲列表
-        Expanded(
+        Obx(() => Expanded(
           child: ListView.builder(
             padding: EdgeInsets.symmetric(horizontal: 16.w),
-            itemCount: songs.length,
+            itemCount: _localController.localSongs.length,
             itemBuilder: (context, index) {
-              return _buildSongItem(songs[index], index);
+              return _buildSongItem(_localController.localSongs[index], index);
             },
           ),
-        ),
+        )),
       ],
     );
   }
 
   Widget _buildSongItem(Song song, int index) {
-    return Consumer<PlayerProvider>(
-      builder: (context, playerProvider, child) {
-        final isPlaying = playerProvider.currentSong?.id == song.id;
+    return Obx(() {
+      final isPlaying = _playerController.currentSong.value?.id == song.id;
 
-        return GestureDetector(
-          onTap: () async {
-            await playerProvider.setPlaylist(
-              context.read<LocalMusicProvider>().localSongs,
-              startIndex: index,
-            );
-            playerProvider.play();
-          },
-          child: Container(
-            padding: EdgeInsets.symmetric(vertical: 8.h),
-            child: Row(
-              children: [
-                // 索引
-                SizedBox(
-                  width: 32.w,
-                  child: isPlaying
-                      ? const Icon(
-                          Icons.graphic_eq,
-                          color: AppColors.primary,
-                          size: 20,
-                        )
-                      : Text(
-                          '${index + 1}',
-                          style: isPlaying
-                              ? AppTextStyles.titleLarge.copyWith(
-                                  color: AppColors.primary,
-                                )
-                              : AppTextStyles.titleMedium.copyWith(
-                                  color: AppColors.onSurfaceSecondary,
-                                ),
-                        ),
-                ),
-                SizedBox(width: 12.w),
-                // 封面
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8.r),
-                  child: song.coverUrl != null
-                      ? Image.file(
-                          File(song.coverUrl!),
-                          width: 48.w,
-                          height: 48.w,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          width: 48.w,
-                          height: 48.w,
-                          color: AppColors.surfaceVariant,
-                          child: const Icon(Icons.music_note, color: Colors.white),
-                        ),
-                ),
-                SizedBox(width: 12.w),
-                // 标题和艺术家
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        song.title,
+      return GestureDetector(
+        onTap: () async {
+          await _playerController.setPlaylist(
+            _localController.localSongs,
+            startIndex: index,
+          );
+          await _playerController.play();
+          // 跳转到播放页面
+          Get.toNamed(AppRoutes.player);
+        },
+        child: Container(
+          padding: EdgeInsets.symmetric(vertical: 8.h),
+          child: Row(
+            children: [
+              // 索引
+              SizedBox(
+                width: 32.w,
+                child: isPlaying
+                    ? const Icon(
+                        Icons.graphic_eq,
+                        color: AppColors.primary,
+                        size: 20,
+                      )
+                    : Text(
+                        '${index + 1}',
                         style: isPlaying
-                            ? AppTextStyles.titleMedium.copyWith(
+                            ? AppTextStyles.titleLarge.copyWith(
                                 color: AppColors.primary,
                               )
-                            : AppTextStyles.titleMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                            : AppTextStyles.titleMedium.copyWith(
+                                color: AppColors.onSurfaceSecondary,
+                              ),
                       ),
-                      SizedBox(height: 4.h),
-                      Text(
-                        song.artist,
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.onSurfaceSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(width: 12.w),
+              // 封面
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8.r),
+                child: song.coverUrl != null
+                    ? Image.file(
+                        File(song.coverUrl!),
+                        width: 48.w,
+                        height: 48.w,
+                        fit: BoxFit.cover,
+                      )
+                    : Container(
+                        width: 48.w,
+                        height: 48.w,
+                        color: AppColors.surfaceVariant,
+                        child: const Icon(Icons.music_note, color: Colors.white),
                       ),
-                    ],
-                  ),
+              ),
+              SizedBox(width: 12.w),
+              // 标题和艺术家
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      song.title,
+                      style: isPlaying
+                          ? AppTextStyles.titleMedium.copyWith(
+                              color: AppColors.primary,
+                            )
+                          : AppTextStyles.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 4.h),
+                    Text(
+                      song.artist,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.onSurfaceSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-                // 更多按钮
-                IconButton(
-                  icon: const Icon(Icons.more_vert, color: AppColors.onSurfaceSecondary),
-                  onPressed: () {
-                    _showSongOptions(context, song);
-                  },
-                ),
-              ],
-            ),
+              ),
+              // 更多按钮
+              IconButton(
+                icon: const Icon(Icons.more_vert, color: AppColors.onSurfaceSecondary),
+                onPressed: () {
+                  _showSongOptions(context, song);
+                },
+              ),
+            ],
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
   }
 
   void _showSongOptions(BuildContext context, Song song) {
@@ -360,17 +366,22 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
             ListTile(
               leading: const Icon(Icons.play_arrow, color: AppColors.primary),
               title: const Text('播放'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(context);
-                context.read<PlayerProvider>().playSong(song);
+                await _playerController.playSong(song);
+                // 跳转到播放页面
+                Get.toNamed(AppRoutes.player);
               },
             ),
             ListTile(
               leading: const Icon(Icons.playlist_add),
               title: const Text('添加到播放队列'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(context);
-                context.read<PlayerProvider>().addToQueue(song);
+                _playerController.setPlaylist([..._playerController.playlist, song]);
+                await _playerController.play();
+                // 跳转到播放页面
+                Get.toNamed(AppRoutes.player);
               },
             ),
             // 移除选项（仅本地音乐）
@@ -380,9 +391,13 @@ class _LocalMusicScreenState extends State<LocalMusicScreen> {
                 title: const Text('从列表中移除', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   Navigator.pop(context);
-                  context.read<LocalMusicProvider>().removeLocalSong(song.id);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已从列表中移除')),
+                  _localController.removeLocalSong(song.id);
+                  Get.snackbar(
+                    '成功',
+                    '已从列表中移除',
+                    snackPosition: SnackPosition.TOP,
+                    backgroundColor: Colors.green.withValues(alpha: 0.8),
+                    colorText: Colors.white,
                   );
                 },
               ),
@@ -420,17 +435,17 @@ class LocalMusicSearchDelegate extends SearchDelegate {
 
   @override
   Widget buildResults(BuildContext context) {
-    return _buildSearchResults(context);
+    return _buildSearchResults();
   }
 
   @override
   Widget buildSuggestions(BuildContext context) {
-    return _buildSearchResults(context);
+    return _buildSearchResults();
   }
 
-  Widget _buildSearchResults(BuildContext context) {
-    final localProvider = context.read<LocalMusicProvider>();
-    final results = localProvider.searchLocalSongs(query);
+  Widget _buildSearchResults() {
+    final localController = Get.find<LocalMusicController>();
+    final results = localController.searchLocalSongs(query);
 
     if (results.isEmpty) {
       return Center(
@@ -463,9 +478,11 @@ class LocalMusicSearchDelegate extends SearchDelegate {
             '${song.artist} - ${song.album}',
             style: AppTextStyles.bodySmall,
           ),
-          onTap: () {
-            context.read<PlayerProvider>().playSong(song);
+          onTap: () async {
+            await Get.find<PlayerController>().playSong(song);
             close(context, null);
+            // 跳转到播放页面
+            Get.toNamed(AppRoutes.player);
           },
         );
       },

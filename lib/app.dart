@@ -2,24 +2,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
 import 'theme/theme.dart';
-import 'providers/player_provider.dart';
-import 'providers/local/local_music_provider.dart';
-import 'providers/online_music_provider.dart';
 import 'screens/main_screen.dart';
+import 'screens/rank/rank_detail_screen.dart';
 import 'modules/player/player_page/player_screen.dart';
 import 'modules/player/player_page/bindings/player_binding.dart';
+import 'bindings/global_binding.dart';
+
+/// Drawer 状态 - 全局追踪 Drawer 是否打开
+class DrawerState extends GetxController {
+  final RxBool isOpen = false.obs;
+}
+
+/// 全局 Drawer 状态实例
+final drawerState = DrawerState();
 
 /// 全局路由名称
 class AppRoutes {
-  static const HOME = '/home';
-  static const DISCOVER = '/discover';
-  static const SEARCH = '/search';
-  static const LIBRARY = '/library';
-  static const PLAYER = '/player';
-  static const PLAYLIST_DETAIL = '/playlist/:id';
-  static const ARTIST_DETAIL = '/artist/:id';
+  static const String home = '/home';
+  static const String discover = '/discover';
+  static const String search = '/search';
+  static const String library = '/library';
+  static const String player = '/player';
+  static const String playlistDetail = '/playlist/:id';
+  static const String artistDetail = '/artist/:id';
+  static const String albumDetail = '/album/detail';
+  static const String rankDetail = '/rank/:id';
 }
 
 class App extends StatelessWidget {
@@ -32,42 +40,32 @@ class App extends StatelessWidget {
       minTextAdapt: true,
       splitScreenMode: true,
       builder: (context, child) {
-        return MultiProvider(
-          providers: [
-            ChangeNotifierProvider(create: (_) => PlayerProvider()),
-            ChangeNotifierProvider(create: (_) => LocalMusicProvider()),
-            ChangeNotifierProvider(create: (_) => OnlineMusicProvider()),
-          ],
-          child: GetMaterialApp(
-            title: 'Music App',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.darkTheme.copyWith(
-              textTheme: GoogleFonts.notoSansTextTheme(
-                AppTheme.darkTheme.textTheme,
+        return GetMaterialApp(
+          title: 'Music App',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.darkTheme.copyWith(
+            textTheme: GoogleFonts.notoSansTextTheme(
+              AppTheme.darkTheme.textTheme,
+            ),
+          ),
+          home: const MainScreen(),
+          // 初始化全局控制器
+          initialBinding: GlobalBinding(),
+          getPages: [
+            GetPage(
+              name: AppRoutes.player,
+              page: () => const PlayerScreen(),
+              binding: PlayerBinding(),
+            ),
+            GetPage(
+              name: AppRoutes.rankDetail,
+              page: () => RankDetailScreen(
+                rankId: Get.arguments as String? ?? '',
               ),
             ),
-            home: const MainScreen(),
-            // 初始化全局控制器
-            initialBinding: _InitialBinding(),
-            getPages: [
-              GetPage(
-                name: AppRoutes.PLAYER,
-                page: () => const PlayerScreen(),
-                binding: PlayerBinding(),
-              ),
-            ],
-          ),
+          ],
         );
       },
     );
-  }
-}
-
-/// 初始化绑定 - 注册全局单例服务
-class _InitialBinding extends Bindings {
-  @override
-  void dependencies() {
-    // PlayerController 会被 PlayerBinding 懒加载
-    // 这里可以注册其他全局服务
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../models/song.dart';
 import '../../../theme/theme.dart';
+import '../../../utils/image_utils.dart';
 
 class SongItem extends StatelessWidget {
   final Song song;
@@ -46,7 +47,7 @@ class SongItem extends StatelessWidget {
             // Cover
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: song.coverUrl != null
+              child: (song.coverUrl != null && song.coverUrl!.isNotEmpty)
                   ? song.isLocal
                       ? Image.file(
                           File(song.coverUrl!),
@@ -55,10 +56,16 @@ class SongItem extends StatelessWidget {
                           fit: BoxFit.cover,
                         )
                       : CachedNetworkImage(
-                          imageUrl: song.coverUrl!,
+                          imageUrl: ImageUtils.replaceImageSize(song.coverUrl!, 48),
                           width: 48,
                           height: 48,
                           fit: BoxFit.cover,
+                          errorWidget: (context, url, error) => Container(
+                            width: 48,
+                            height: 48,
+                            color: AppColors.surfaceVariant,
+                            child: const Icon(Icons.music_note, color: Colors.white),
+                          ),
                         )
                   : Container(
                       width: 48,

@@ -1,6 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../player_controller/player_controller.dart';
 import 'widgets/album_art_widget.dart';
 import 'widgets/progress_slider_widget.dart';
@@ -39,7 +41,7 @@ class PlayerScreen extends GetView<PlayerController> {
                 ),
                 SizedBox(height: 16.h),
                 Text(
-                  '暂无播放',
+                  '暂时无法播放~',
                   style: AppTextStyles.bodyLarge.copyWith(
                     color: AppColors.onSurfaceSecondary,
                   ),
@@ -51,90 +53,143 @@ class PlayerScreen extends GetView<PlayerController> {
       }
 
       return Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.keyboard_arrow_down,
-                color: AppColors.onSurface),
-            onPressed: () => Navigator.pop(context),
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.more_vert, color: AppColors.onSurface),
-              onPressed: () {
-                // TODO: 显示更多选项
-              },
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // 专辑封面
-              Expanded(
-                flex: 4,
-                child: Center(
-                  child: AlbumArtWidget(
-                    song: currentSong,
-                    isPlaying: controller.isPlaying.value,
-                    rotationAnimation: CurvedAnimation(
-                      parent: controller.rotationController,
-                      curve: Curves.linear,
+        body: Stack(
+          children: [
+            // 背景图片
+            Positioned.fill(
+              child: currentSong.coverUrl != null && currentSong.coverUrl!.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: currentSong.coverUrl!,
+                      fit: BoxFit.cover,
+                      errorWidget: (context, url, error) => Container(
+                        color: AppColors.background,
+                      ),
+                    )
+                  : Container(
+                      color: AppColors.background,
                     ),
+            ),
+            // 毛玻璃效果层
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.background.withValues(alpha: 0.5),
                   ),
                 ),
               ),
-              // 歌曲信息和进度条
-              Expanded(
-                flex: 2,
+            ),
+            // 内容
+            Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                leading: IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down,
+                      color: AppColors.onSurface),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.more_vert, color: AppColors.onSurface),
+                    onPressed: () {
+                      // TODO: 显示更多选项
+                    },
+                  ),
+                ],
+              ),
+              body: SafeArea(
                 child: Column(
                   children: [
-                    // 歌曲标题和歌手
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 32.w),
-                      child: Column(
-                        children: [
-                          Text(
-                            currentSong.title,
-                            style: AppTextStyles.headlineMedium,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                    // 专辑封面
+                    Expanded(
+                      flex: 2,
+                      child: Center(
+                        child: AlbumArtWidget(
+                          song: currentSong,
+                          isPlaying: controller.isPlaying.value,
+                          rotationAnimation: CurvedAnimation(
+                            parent: controller.rotationController,
+                            curve: Curves.linear,
                           ),
-                          SizedBox(height: 8.h),
-                          Text(
-                            currentSong.artist,
-                            style: AppTextStyles.bodyLarge.copyWith(
-                              color: AppColors.onSurfaceSecondary,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                    const Spacer(),
-                    // 进度条
-                    ProgressSliderWidget(
-                      position: controller.position.value,
-                      duration: controller.duration.value,
-                      onChanged: (value) {
-                        controller.seek(
-                          Duration(milliseconds: value.toInt()),
-                        );
-                      },
+                    // 歌曲信息和进度条
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 20.w),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // 歌曲标题、歌手、收藏和评论按钮横向排列
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        currentSong.title,
+                                        style: AppTextStyles.titleLarge,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      SizedBox(height: 4.h),
+                                      Text(
+                                        currentSong.artist,
+                                        style: AppTextStyles.bodyMedium.copyWith(
+                                          color: AppColors.onSurfaceSecondary,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(width: 8.w),
+                                // 收藏按钮
+                                IconButton(
+                                  icon: const Icon(Icons.favorite_border),
+                                  color: AppColors.onSurface,
+                                  onPressed: () {},
+                                ),
+                                // 评论按钮
+                                IconButton(
+                                  icon: const Icon(Icons.comment),
+                                  color: AppColors.onSurface,
+                                  onPressed: () {},
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 16.h),
+                            // 进度条
+                            ProgressSliderWidget(
+                              position: controller.position.value,
+                              duration: controller.duration.value,
+                              onChanged: (value) {
+                                controller.seek(
+                                  Duration(milliseconds: value.toInt()),
+                                );
+                              },
+                            ),
+                            SizedBox(height: 24.h),
+                          ],
+                        ),
+                      ),
                     ),
-                    SizedBox(height: 24.h),
+                    // 控制按钮
+                    ControlButtonsWidget(controller: controller),
+                    SizedBox(height: 16.h),
                   ],
                 ),
               ),
-              // 控制按钮
-              ControlButtonsWidget(controller: controller),
-              SizedBox(height: 32.h),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     });

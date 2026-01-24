@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../theme/theme.dart';
 import '../../../../models/song.dart';
+import '../../../../utils/image_utils.dart';
 
 /// 播放器专辑封面组件
 class AlbumArtWidget extends StatelessWidget {
@@ -43,34 +44,46 @@ class AlbumArtWidget extends StatelessWidget {
   }
 
   Widget _buildCoverImage() {
-    if (song.coverUrl != null) {
-      if (song.isLocal) {
-        return Image.file(
-          File(song.coverUrl!),
-          width: 280.w,
-          height: 280.w,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return _buildDefaultCover();
-          },
-        );
-      } else {
-        return CachedNetworkImage(
-          imageUrl: song.coverUrl!,
-          width: 280.w,
-          height: 280.w,
-          fit: BoxFit.cover,
-          placeholder: (context, url) => Container(
-            color: AppColors.surfaceVariant,
-            child: const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
-            ),
-          ),
-          errorWidget: (context, url, error) => _buildDefaultCover(),
-        );
-      }
+    // 检查是否有有效的封面 URL
+    final hasValidCover = song.coverUrl != null && song.coverUrl!.isNotEmpty;
+
+    if (!hasValidCover) {
+      return _buildDefaultCover();
     }
-    return _buildDefaultCover();
+
+    // 本地图片
+    if (song.isLocal) {
+      return Image.file(
+        File(song.coverUrl!),
+        width: 280.w,
+        height: 280.w,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return _buildDefaultCover();
+        },
+      );
+    }
+
+    // 在线图片 - 使用高分辨率保证清晰度
+    String coverUrl = song.coverUrl!;
+
+    // 如果 URL 包含 {size} 占位符，替换为大尺寸
+    if (coverUrl.contains('{size}')) {
+      coverUrl = ImageUtils.replaceImageSize(coverUrl, 1000);
+    }
+
+    return CachedNetworkImage(
+      imageUrl: coverUrl,
+      width: 280.w,
+      height: 280.w,
+      fit: BoxFit.cover,
+      placeholder: (context, url) => _buildDefaultCover(),
+      errorWidget: (context, url, error) => _buildDefaultCover(),
+      memCacheWidth: 1000,
+      memCacheHeight: 1000,
+      maxWidthDiskCache: 1500,
+      maxHeightDiskCache: 1500,
+    );
   }
 
   Widget _buildDefaultCover() {

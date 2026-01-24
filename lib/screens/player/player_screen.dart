@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:get/get.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import '../../providers/player_provider.dart';
+import '../../modules/player/player_controller/player_controller.dart';
 import '../../theme/theme.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -34,20 +34,20 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final playerProvider = Provider.of<PlayerProvider>(context);
-    final currentSong = playerProvider.currentSong;
+    final playerController = Get.find<PlayerController>();
+    final currentSong = playerController.currentSong.value;
 
     if (currentSong == null) {
       return Scaffold(
         backgroundColor: AppColors.background,
         body: const Center(
-          child: Text('暂无播放', style: AppTextStyles.bodyLarge),
+          child: Text('暂时无法播放~', style: AppTextStyles.bodyLarge),
         ),
       );
     }
 
     // Start rotation animation when playing
-    if (playerProvider.isPlaying) {
+    if (playerController.isPlaying.value) {
       _rotationController.repeat();
     } else {
       _rotationController.stop();
@@ -83,22 +83,30 @@ class _PlayerScreenState extends State<PlayerScreen>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.primary.withOpacity(0.3),
+                        color: AppColors.primary.withValues(alpha: 0.3),
                         blurRadius: 30.r,
                         spreadRadius: 10.r,
                       ),
                     ],
                   ),
                   child: ClipOval(
-                    child: currentSong.coverUrl != null
+                    child: (currentSong.coverUrl != null && currentSong.coverUrl!.isNotEmpty)
                         ? (currentSong.isLocal
                             ? Image.file(
                                 File(currentSong.coverUrl!),
                                 fit: BoxFit.cover,
+                                errorBuilder: (context, error, stack) => Container(
+                                  color: AppColors.surfaceVariant,
+                                  child: const Icon(Icons.music_note, color: Colors.white, size: 80),
+                                ),
                               )
                             : CachedNetworkImage(
                                 imageUrl: currentSong.coverUrl!,
                                 fit: BoxFit.cover,
+                                errorWidget: (context, url, error) => Container(
+                                  color: AppColors.surfaceVariant,
+                                  child: const Icon(Icons.music_note, color: Colors.white, size: 80),
+                                ),
                               ))
                         : Container(
                             color: AppColors.surfaceVariant,
@@ -153,37 +161,37 @@ class _PlayerScreenState extends State<PlayerScreen>
                           inactiveTrackColor: AppColors.surfaceVariant,
                           thumbColor: AppColors.primary,
                         ),
-                        child: Slider(
-                          value: playerProvider.position.inMilliseconds
+                        child: Obx(() => Slider(
+                          value: playerController.position.value.inMilliseconds
                               .toDouble(),
                           min: 0,
-                          max: playerProvider.duration.inMilliseconds
+                          max: playerController.duration.value.inMilliseconds
                               .toDouble(),
                           onChanged: (value) {
-                            playerProvider.seek(
+                            playerController.seek(
                               Duration(milliseconds: value.toInt()),
                             );
                           },
-                        ),
+                        )),
                       ),
                       // Time labels
                       Padding(
                         padding: EdgeInsets.symmetric(horizontal: 8.w),
                         child: Row(
                           children: [
-                            Text(
-                              _formatTime(playerProvider.position),
+                            Obx(() => Text(
+                              playerController.formatTime(playerController.position.value),
                               style: AppTextStyles.bodySmall.copyWith(
                                 color: AppColors.onSurfaceSecondary,
                               ),
-                            ),
+                            )),
                             const Spacer(),
-                            Text(
-                              _formatTime(playerProvider.duration),
+                            Obx(() => Text(
+                              playerController.formatTime(playerController.duration.value),
                               style: AppTextStyles.bodySmall.copyWith(
                                 color: AppColors.onSurfaceSecondary,
                               ),
-                            ),
+                            )),
                           ],
                         ),
                       ),
@@ -212,7 +220,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     IconButton(
                       icon: const Icon(Icons.skip_previous,
                           color: AppColors.onSurface, size: 36),
-                      onPressed: playerProvider.seekToPrevious,
+                      onPressed: playerController.hasPrevious ? playerController.seekToPrevious : null,
                     ),
                     // Play/Pause
                     Container(
@@ -223,45 +231,36 @@ class _PlayerScreenState extends State<PlayerScreen>
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.primary.withOpacity(0.4),
+                            color: AppColors.primary.withValues(alpha: 0.4),
                             blurRadius: 16.r,
                             spreadRadius: 4.r,
                           ),
                         ],
                       ),
                       child: IconButton(
-                        icon: Icon(
-                          playerProvider.isPlaying
+                        icon: Obx(() => Icon(
+                          playerController.isPlaying.value
                               ? Icons.pause
                               : Icons.play_arrow,
                           color: AppColors.onPrimary,
                           size: 36,
-                        ),
-                        onPressed: playerProvider.togglePlay,
+                        )),
+                        onPressed: playerController.togglePlay,
                       ),
                     ),
                     // Next
                     IconButton(
                       icon:
                           const Icon(Icons.skip_next, color: AppColors.onSurface, size: 36),
-                      onPressed: playerProvider.seekToNext,
+                      onPressed: playerController.hasNext ? playerController.seekToNext : null,
                     ),
                     // Loop mode
                     IconButton(
-                      icon: Icon(
-                        playerProvider.playMode == PlayMode.loop
-                            ? Icons.repeat
-                            : Icons.repeat_one,
-                        color: playerProvider.playMode != PlayMode.sequential
-                            ? AppColors.primary
-                            : AppColors.onSurfaceSecondary,
-                      ),
-                      onPressed: () {
-                        final modes = PlayMode.values;
-                        final currentIndex = modes.indexOf(playerProvider.playMode);
-                        final nextIndex = (currentIndex + 1) % modes.length;
-                        playerProvider.setPlayMode(modes[nextIndex]);
-                      },
+                      icon: Obx(() => Icon(
+                        playerController.playModeIcon,
+                        color: playerController.playModeColor,
+                      )),
+                      onPressed: playerController.switchPlayMode,
                     ),
                   ],
                 ),
@@ -293,11 +292,5 @@ class _PlayerScreenState extends State<PlayerScreen>
         )),
       ],
     );
-  }
-
-  String _formatTime(Duration duration) {
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 }

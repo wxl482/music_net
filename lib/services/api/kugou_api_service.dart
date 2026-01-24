@@ -1,9 +1,13 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../../models/song.dart';
 import '../../models/playlist.dart';
+import '../../models/playlist_detail.dart';
 import '../../models/album.dart';
 import '../../models/artist.dart';
+import '../../models/banner.dart';
+import '../../models/rank.dart';
 
 // 导出类型别名方便使用
 export '../../models/playlist.dart' show RankItem;
@@ -15,7 +19,7 @@ class KugouApiService {
   KugouApiService._();
 
   // API 服务器地址
-  static const String _baseUrl = 'http://192.168.2.5:3000';
+  static const String _baseUrl = 'http://192.168.10.231:3000';
 
   // Dio 实例（带日志拦截器）
   static final Dio _dio = _createDio();
@@ -46,7 +50,9 @@ class KugouApiService {
           responseHeader: false,
           responseBody: true,
           error: true,
-          logPrint: (obj) => print('[DIO] $obj'),
+          logPrint: (obj) {
+          if (kDebugMode) print('[DIO] $obj');
+        },
         ),
       );
     }
@@ -55,26 +61,67 @@ class KugouApiService {
   }
 
   /// 搜索音乐
-  /// POST /search?keyword=xxx
-  Future<List<Song>> searchMusic(String keywords, {int page = 1, int pagesize = 30}) async {
+  /// GET /search?keywords=xxx&type=song
+  /// type: special=歌单, lyric=歌词, song=歌曲, album=专辑, author=歌手, mv=视频
+  Future<Map<String, dynamic>> search(
+    String keywords, {
+    String type = 'song',
+    int page = 1,
+    int pagesize = 30,
+  }) async {
     try {
-      final response = await _dio.post(
+      final response = await _dio.get(
         '/search',
-        data: {
+        queryParameters: {
           'keywords': keywords,
+          'type': type,
           'page': page,
           'pagesize': pagesize,
         },
       );
 
-      if (response.statusCode == 200) {
-        final lists = response.data['data']['lists'] as List? ?? [];
-        return lists.map((item) => _parseSong(item)).toList();
+      if (response.statusCode == 200 && response.data != null) {
+        return response.data as Map<String, dynamic>;
       }
     } catch (e) {
       if (kDebugMode) print('搜索失败: $e');
     }
-    return [];
+    return {};
+  }
+
+  /// 搜索音乐（简化版本，返回歌曲列表）
+  Future<List<Song>> searchMusic(String keywords, {int page = 1, int pagesize = 30}) async {
+    final result = await search(keywords, type: 'song', page: page, pagesize: pagesize);
+    final lists = result['data']?['lists'] as List? ?? [];
+    return lists.map((item) => _parseSong(item)).toList();
+  }
+
+  /// 搜索歌单
+  Future<List<Playlist>> searchPlaylists(String keywords, {int page = 1, int pagesize = 20}) async {
+    final result = await search(keywords, type: 'special', page: page, pagesize: pagesize);
+    final lists = result['data']?['lists'] as List? ?? [];
+    return lists.map((item) => _parsePlaylist(item)).toList();
+  }
+
+  /// 搜索歌手
+  Future<List<Artist>> searchArtists(String keywords, {int page = 1, int pagesize = 20}) async {
+    final result = await search(keywords, type: 'author', page: page, pagesize: pagesize);
+    final lists = result['data']?['lists'] as List? ?? [];
+    return lists.map((item) => _parseArtist(item)).toList();
+  }
+
+  /// 搜索专辑
+  Future<List<Album>> searchAlbums(String keywords, {int page = 1, int pagesize = 20}) async {
+    final result = await search(keywords, type: 'album', page: page, pagesize: pagesize);
+    final lists = result['data']?['lists'] as List? ?? [];
+    return lists.map((item) => _parseAlbum(item)).toList();
+  }
+
+  /// 搜索MV
+  Future<List<Map<String, dynamic>>> searchMVs(String keywords, {int page = 1, int pagesize = 20}) async {
+    final result = await search(keywords, type: 'mv', page: page, pagesize: pagesize);
+    final lists = result['data']?['lists'] as List? ?? [];
+    return lists.map((item) => item as Map<String, dynamic>).toList();
   }
 
   /// 注册设备获取 dfid
@@ -124,23 +171,21 @@ class KugouApiService {
     final dfid = await _registerDevice();
     if (dfid == null || dfid.isEmpty) {
       if (kDebugMode) print('[歌曲URL] 无法获取 dfid');
+      return null;
     }
 
     try {
-      // 将 dfid 放到 cookie 中
-      final options = Options(
-        headers: {
-          if (dfid != null && dfid.isNotEmpty) 'Cookie': 'dfid=$dfid',
-        },
-      );
-
       final response = await _dio.get(
         '/song/url',
         queryParameters: {
           'hash': hash.toLowerCase(),
           'quality': quality,
         },
-        options: options,
+        options: Options(
+          headers: {
+            'Cookie': 'dfid=$dfid',
+          },
+        ),
       );
 
       if (kDebugMode) {
@@ -150,50 +195,42 @@ class KugouApiService {
       }
 
       if (response.statusCode == 200 && response.data != null) {
-        // 支持多种响应格式
-
-        // 格式1: { data: { url: "..." } } 或 { data: { url: ["..."] } }
-        if (response.data['data'] != null) {
-          final dataUrl = response.data['data']['url'];
-          if (dataUrl != null) {
-            if (dataUrl is String && dataUrl.isNotEmpty) {
-              if (kDebugMode) print('[歌曲URL] 找到播放链接(格式1-字符串): $dataUrl');
-              return dataUrl;
-            } else if (dataUrl is List && dataUrl.isNotEmpty) {
-              final url = dataUrl[0] as String?;
-              if (url != null && url.isNotEmpty) {
-                if (kDebugMode) print('[歌曲URL] 找到播放链接(格式1-数组): $url');
-                return url;
-              }
-            }
-          }
+        // 检查是否有错误
+        if (response.data['fail_process'] != null) {
+          if (kDebugMode) print('[歌曲URL] 响应包含错误: ${response.data}');
+          return null;
         }
 
-        // 格式2: { url: ["...", "..."] } 或 { url: "..." }
-        if (response.data['url'] != null) {
-          final urlField = response.data['url'];
-          if (urlField is String && urlField.isNotEmpty) {
-            if (kDebugMode) print('[歌曲URL] 找到播放链接(格式2-字符串): $urlField');
-            return urlField;
-          } else if (urlField is List && urlField.isNotEmpty) {
-            final url = urlField[0] as String?;
+        // 查找播放链接 - 响应格式: { url: ["...", "..."] } 或 { data: { url: "..." } }
+        // url 可能是一个数组，取第一个有效的 URL
+        final urlData = response.data['url'];
+        if (urlData != null) {
+          if (urlData is String && urlData.isNotEmpty) {
+            if (kDebugMode) print('[歌曲URL] 找到播放链接: $urlData');
+            return urlData;
+          } else if (urlData is List && urlData.isNotEmpty) {
+            final url = urlData[0] as String?;
             if (url != null && url.isNotEmpty) {
-              if (kDebugMode) print('[歌曲URL] 找到播放链接(格式2-数组): $url');
+              if (kDebugMode) print('[歌曲URL] 找到播放链接(数组): $url');
               return url;
             }
           }
         }
 
-        // 格式3: { backupUrl: ["...", "..."] } - 备用链接
-        if (response.data['backupUrl'] != null) {
-          final backupUrl = response.data['backupUrl'];
-          if (backupUrl is List && backupUrl.isNotEmpty) {
-            final url = backupUrl[0] as String?;
-            if (url != null && url.isNotEmpty) {
-              if (kDebugMode) print('[歌曲URL] 找到播放链接(备用): $url');
-              return url;
-            }
+        // 检查 backupUrl 备用链接
+        final backupUrlData = response.data['backupUrl'];
+        if (backupUrlData is List && backupUrlData.isNotEmpty) {
+          final url = backupUrlData[0] as String?;
+          if (url != null && url.isNotEmpty) {
+            if (kDebugMode) print('[歌曲URL] 找到备用播放链接: $url');
+            return url;
           }
+        }
+
+        if (response.data['data'] != null && response.data['data']['url'] != null) {
+          final url = response.data['data']['url'];
+          if (kDebugMode) print('[歌曲URL] 找到播放链接(data): $url');
+          return url;
         }
 
         if (kDebugMode) print('[歌曲URL] 响应中未找到url字段');
@@ -237,6 +274,72 @@ class KugouApiService {
   /// 获取歌单详情
   /// GET /playlist/detail?ids=xxx
   Future<PlaylistDetail?> getPlaylistDetail(String globalCollectionId) async {
+    final data = await getPlaylistDetailRaw(globalCollectionId);
+    if (data == null) return null;
+    return _parsePlaylistDetail(data['info']);
+  }
+
+  /// 获取歌单详情（带歌曲数据）
+  /// 同时获取歌单信息和歌曲列表，返回实体类
+  Future<PlaylistDetailData?> getPlaylistDetailWithSongs(
+    String globalCollectionId, {
+    int page = 1,
+    int pagesize = 100,
+  }) async {
+    try {
+      // 并行获取歌单信息和歌曲列表
+      final results = await Future.wait([
+        _dio.get('/playlist/detail', queryParameters: {'ids': globalCollectionId}),
+        _dio.get('/playlist/track/all', queryParameters: {
+          'id': globalCollectionId,
+          'page': page,
+          'pagesize': pagesize,
+        }),
+      ]);
+
+      final detailResponse = results[0];
+      final songsResponse = results[1];
+
+      if (detailResponse.statusCode != 200 || songsResponse.statusCode != 200) {
+        if (kDebugMode) {
+          print('获取歌单详情失败: HTTP ${detailResponse.statusCode} / ${songsResponse.statusCode}');
+        }
+        return null;
+      }
+
+      // 解析歌单基本信息
+      final detailData = detailResponse.data['data'];
+      Map<String, dynamic> detailJson = {};
+
+      if (detailData == null || (detailData is Map && detailData.isEmpty)) {
+        if (kDebugMode) print('获取歌单详情失败: 返回数据为空');
+        return null;
+      }
+
+      // 如果 data 是数组，取第一个元素
+      if (detailData is List && detailData.isNotEmpty) {
+        detailJson = detailData[0] as Map<String, dynamic>;
+      } else if (detailData is Map) {
+        detailJson = detailData as Map<String, dynamic>;
+      }
+
+      // 合并歌曲数据
+      final songsData = songsResponse.data['data'];
+      if (songsData != null && songsData is Map) {
+        detailJson['songs'] = songsData;
+      }
+
+      return PlaylistDetailData.fromJson(detailJson);
+    } catch (e) {
+      if (kDebugMode) print('获取歌单详情失败: $e');
+      return null;
+    }
+  }
+
+  /// 获取歌单详情原始数据（保留兼容性）
+  /// GET /playlist/detail?ids=xxx
+  @deprecated
+  Future<Map<String, dynamic>?> getPlaylistDetailRaw(String globalCollectionId) async {
     try {
       final response = await _dio.get(
         '/playlist/detail',
@@ -244,11 +347,61 @@ class KugouApiService {
       );
 
       if (response.statusCode == 200) {
-        final detail = response.data['data']['info'];
-        return _parsePlaylistDetail(detail);
+        final data = response.data['data'];
+        // 检查 data 是否为空
+        if (data == null || (data is Map && data.isEmpty)) {
+          if (kDebugMode) print('获取歌单详情失败: 返回数据为空');
+          return null;
+        }
+
+        // 如果 data 是数组，取第一个元素
+        if (data is List && data.isNotEmpty) {
+          return data[0] as Map<String, dynamic>;
+        }
+
+        // 如果 data 是对象，直接返回
+        if (data is Map) {
+          return data as Map<String, dynamic>;
+        }
+
+        if (kDebugMode) print('获取歌单详情失败: 数据格式错误');
+        return null;
       }
     } catch (e) {
       if (kDebugMode) print('获取歌单详情失败: $e');
+    }
+    return null;
+  }
+
+  /// 获取歌单所有歌曲（保留兼容性）
+  /// GET /playlist/track/all?id=xxx&page=1&pagesize=100
+  @deprecated
+  Future<Map<String, dynamic>?> getPlaylistSongs(
+    String globalCollectionId, {
+    int page = 1,
+    int pagesize = 100,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/playlist/track/all',
+        queryParameters: {
+          'id': globalCollectionId,
+          'page': page,
+          'pagesize': pagesize,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data['data'];
+        if (data != null && data is Map) {
+          return data as Map<String, dynamic>;
+        }
+        if (kDebugMode) print('获取歌单歌曲失败: data 格式错误');
+      } else {
+        if (kDebugMode) print('获取歌单歌曲失败: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) print('获取歌单歌曲失败: $e');
     }
     return null;
   }
@@ -349,21 +502,50 @@ class KugouApiService {
   }
 
   /// 获取专辑详情
-  /// GET /album/detail?albumid=xxx
+  /// GET /album/detail?id=xxx
   Future<Album?> getAlbumDetail(String albumId) async {
     try {
       final response = await _dio.get(
         '/album/detail',
-        queryParameters: {'albumid': albumId},
+        queryParameters: {'id': albumId},
       );
 
-      if (response.statusCode == 200) {
-        return _parseAlbum(response.data['data']);
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data['data'];
+        if (data is List && data.isNotEmpty) {
+          return _parseAlbumDetail(data[0]);
+        }
       }
     } catch (e) {
       if (kDebugMode) print('获取专辑详情失败: $e');
     }
     return null;
+  }
+
+  /// 获取专辑歌曲列表
+  /// GET /album/songs?id=xxx
+  Future<List<Song>> getAlbumSongs(String albumId, {int page = 1, int pagesize = 50}) async {
+    try {
+      final response = await _dio.get(
+        '/album/songs',
+        queryParameters: {
+          'id': albumId,
+          'page': page,
+          'pagesize': pagesize,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data['data'];
+        if (data != null && data is Map) {
+          final list = data['songs'] as List? ?? []; // 专辑歌曲列表
+          return list.map((item) => _parseAlbumSong(item)).toList();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) print('获取专辑歌曲失败: $e');
+    }
+    return [];
   }
 
   /// 获取歌词
@@ -400,6 +582,43 @@ class KugouApiService {
     return [];
   }
 
+  /// 获取轮播图数据（使用推荐歌单接口）
+  /// GET /top/playlist?category_id=0
+  Future<List<BannerItem>> getBanners({int pagesize = 5}) async {
+    try {
+      final response = await _dio.get(
+        '/top/playlist',
+        queryParameters: {'category_id': 0, 'pagesize': pagesize},
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data['data']['special_list'] as List? ?? [];
+        return data.map((item) => _parseBannerItem(item)).toList();
+      }
+    } catch (e) {
+      if (kDebugMode) print('获取轮播图失败: $e');
+    }
+    return [];
+  }
+
+  /// 解析轮播图数据
+  BannerItem _parseBannerItem(Map<String, dynamic> item) {
+    // 处理封面图片 URL，替换 {size} 占位符
+    String? coverUrl = item['imgurl'] ?? item['flexible_cover'] ?? item['pic'];
+    if (coverUrl != null && coverUrl.contains('{size}')) {
+      coverUrl = coverUrl.replaceAll('{size}', '600');
+    }
+
+    return BannerItem(
+      id: item['specialid']?.toString() ?? '',
+      title: item['specialname'] ?? item['show'] ?? '',
+      imageUrl: coverUrl ?? '',
+      url: item['global_collection_id']?.toString() ?? '',
+      description: item['intro'] ?? '',
+      playCount: item['play_count'] ?? 0,
+    );
+  }
+
   /// 获取歌手列表 (别名方法)
   Future<List<Artist>> getArtistList({int page = 1, int pagesize = 30}) async {
     return getArtists(page: page, pagesize: pagesize);
@@ -424,25 +643,6 @@ class KugouApiService {
     return [];
   }
 
-  /// 获取专辑歌曲
-  /// GET /album/songs?albumid=xxx
-  Future<List<Song>> getAlbumSongs(String albumId, {int page = 1, int pagesize = 50}) async {
-    try {
-      final response = await _dio.get(
-        '/album/songs',
-        queryParameters: {'albumid': albumId, 'page': page, 'pagesize': pagesize},
-      );
-
-      if (response.statusCode == 200) {
-        final list = response.data['data']['list'] as List? ?? response.data['data'] as List? ?? [];
-        return list.map((item) => _parseSong(item)).toList();
-      }
-    } catch (e) {
-      if (kDebugMode) print('获取专辑歌曲失败: $e');
-    }
-    return [];
-  }
-
   // ========== 私有方法 - 解析数据 ==========
 
   /// 解析歌单数据
@@ -459,6 +659,7 @@ class KugouApiService {
 
     return Playlist(
       id: item['specialid']?.toString() ?? '',
+      globalCollectionId: item['global_collection_id']?.toString() ?? '',
       name: item['specialname'] ?? item['name'] ?? '未知歌单',
       coverUrl: coverUrl,
       playCount: item['play_count'] ?? item['playCount'] ?? 0,
@@ -551,12 +752,77 @@ class KugouApiService {
     );
   }
 
+  /// 解析专辑歌曲数据（专辑详情专用格式）
+  Song _parseAlbumSong(Map<String, dynamic> item) {
+    // 专辑歌曲 API 返回格式：
+    // audio_info: { hash, duration }
+    // base: { author_name, audio_name, album_audio_id }
+    // album_info: { album_name, cover }
+    final audioInfo = item['audio_info'] as Map<String, dynamic>? ?? {};
+    final base = item['base'] as Map<String, dynamic>? ?? {};
+    final albumInfo = item['album_info'] as Map<String, dynamic>? ?? {};
+
+    final hash = audioInfo['hash']?.toString() ?? '';
+    final title = base['audio_name']?.toString() ?? '未知歌曲';
+    final artist = base['author_name']?.toString() ?? '未知艺术家';
+    final album = albumInfo['album_name']?.toString() ?? '未知专辑';
+
+    // 处理封面图片 URL
+    String? coverUrl = albumInfo['cover']?.toString();
+    if (coverUrl != null && coverUrl.contains('{size}')) {
+      coverUrl = coverUrl.replaceAll('{size}', '150');
+    }
+
+    // 解析时长（单位：毫秒）
+    int durationMs = 0;
+    if (audioInfo['duration'] != null) {
+      final durationVal = audioInfo['duration'];
+      durationMs = durationVal is int ? durationVal : int.tryParse(durationVal.toString()) ?? 0;
+    } else if (audioInfo['duration_128'] != null) {
+      final durationVal = audioInfo['duration_128'];
+      durationMs = durationVal is int ? durationVal : int.tryParse(durationVal.toString()) ?? 0;
+    }
+
+    return Song(
+      id: hash,
+      title: title,
+      artist: artist,
+      album: album,
+      coverUrl: coverUrl,
+      audioUrl: null,
+      duration: Duration(milliseconds: durationMs),
+      isLocal: false,
+    );
+  }
+
   /// 解析排行榜数据
   RankItem _parseRankItem(Map<String, dynamic> item) {
+    // 打印完整数据以便查看所有可用字段
+    if (kDebugMode) {
+      print('RankItem keys: ${item.keys.toList()}');
+      print('RankItem data: $item');
+    }
+
     // 处理封面图片 URL，替换 {size} 占位符
     String? coverUrl = item['imgurl'] ?? item['img_cover'] ?? item['banner_9'];
     if (coverUrl != null && coverUrl.contains('{size}')) {
       coverUrl = coverUrl.replaceAll('{size}', '300');
+    }
+
+    // 优先使用 scheduled_release_conf 中的 latest_rank_cid_publish_date
+    String? publishDate;
+    if (item['scheduled_release_conf'] != null) {
+      final conf = item['scheduled_release_conf'] as Map<String, dynamic>?;
+      publishDate = conf?['latest_rank_cid_publish_date'];
+    }
+    // 如果没有，则使用 rank_id_publish_date
+    publishDate ??= item['rank_id_publish_date'];
+
+    // 尝试解析背景颜色
+    Color? backgroundColor;
+    final bgColorStr = item['background_color'] ?? item['bg_color'] ?? item['color'] ?? item['theme_color'];
+    if (bgColorStr != null) {
+      backgroundColor = _parseColor(bgColorStr);
     }
 
     return RankItem(
@@ -564,23 +830,45 @@ class KugouApiService {
       name: item['rankname'] ?? item['name'] ?? '未知榜单',
       coverUrl: coverUrl,
       songCount: item['songinfo'] != null ? (item['songinfo'] as List).length : 0,
+      updateFrequency: item['update_frequency'],
+      publishDate: publishDate,
+      backgroundColor: backgroundColor,
     );
+  }
+
+  /// 解析颜色字符串（支持 #RRGGBB、#AARRGGBB、0xFFRRGGBB 等格式）
+  Color? _parseColor(dynamic colorValue) {
+    if (colorValue == null) return null;
+
+    String colorStr = colorValue.toString();
+    if (colorStr.isEmpty) return null;
+
+    // 移除可能的 0x 前缀
+    if (colorStr.startsWith('0x')) {
+      colorStr = colorStr.substring(2);
+    }
+    // 添加 # 前缀（如果没有）
+    if (!colorStr.startsWith('#')) {
+      colorStr = '#$colorStr';
+    }
+
+    return Color(int.parse(colorStr.replaceAll('#', '0xFF')));
   }
 
   /// 解析歌手数据
   Artist _parseArtist(Map<String, dynamic> item) {
     // 处理头像图片 URL，替换 {size} 占位符
-    String? coverUrl = item['imgurl'] ?? item['avatar'];
+    String? coverUrl = item['Avatar'] ?? item['imgurl'] ?? item['avatar'];
     if (coverUrl != null && coverUrl.contains('{size}')) {
       coverUrl = coverUrl.replaceAll('{size}', '200');
     }
 
     return Artist(
-      id: item['singerid']?.toString() ?? '',
-      name: item['singername'] ?? item['name'] ?? '未知歌手',
+      id: item['AuthorId']?.toString() ?? item['singerid']?.toString() ?? '',
+      name: item['AuthorName'] ?? item['SingerName'] ?? item['singername'] ?? item['name'] ?? '未知歌手',
       coverUrl: coverUrl,
-      albumCount: item['albumcount'] ?? 0,
-      songCount: item['songcount'] ?? 0,
+      albumCount: item['AlbumCount'] ?? item['albumcount'] ?? 0,
+      songCount: item['AudioCount'] ?? item['SongCount'] ?? item['songcount'] ?? 0,
     );
   }
 
@@ -606,18 +894,71 @@ class KugouApiService {
   /// 解析专辑数据
   Album _parseAlbum(Map<String, dynamic> item) {
     // 处理封面图片 URL，替换 {size} 占位符
-    String? coverUrl = item['imgurl'] ?? item['album_img_9'];
+    String? coverUrl = item['img'] ?? item['imgurl'] ?? item['album_img_9'];
     if (coverUrl != null && coverUrl.contains('{size}')) {
       coverUrl = coverUrl.replaceAll('{size}', '300');
+    }
+
+    // 获取歌手名称
+    String artist = '未知艺术家';
+    if (item['singer'] != null && item['singer'].toString().isNotEmpty) {
+      artist = item['singer'].toString();
+    } else if (item['singers'] != null && item['singers'] is List && (item['singers'] as List).isNotEmpty) {
+      final singers = item['singers'] as List;
+      artist = singers.map((s) => s is Map ? s['name'] : s).whereType<String>().join(', ');
+    } else if (item['singername'] != null) {
+      artist = item['singername'].toString();
+    } else if (item['artist'] != null) {
+      artist = item['artist'].toString();
     }
 
     return Album(
       id: item['albumid']?.toString() ?? '',
       name: item['albumname'] ?? '未知专辑',
       coverUrl: coverUrl,
-      artist: item['singername'] ?? item['artist'] ?? '未知艺术家',
-      publishDate: item['publishtime'] ?? item['publishDate'] ?? '',
+      artist: artist,
+      publishDate: item['publish_time'] ?? item['publishtime'] ?? item['publishDate'] ?? '',
       songCount: item['songcount'] ?? 0,
+    );
+  }
+
+  /// 解析专辑详情数据
+  Album _parseAlbumDetail(Map<String, dynamic> item) {
+    // 处理封面图片 URL
+    String? coverUrl = item['sizable_cover'] ?? item['album_img'] ?? item['imgurl'];
+    if (coverUrl != null && coverUrl.contains('{size}')) {
+      coverUrl = coverUrl.replaceAll('{size}', '400');
+    }
+
+    // 获取歌手名称和ID
+    String artist = '未知艺术家';
+    String artistId = '';
+    if (item['author_name'] != null) {
+      artist = item['author_name'].toString();
+    } else if (item['authors'] != null && item['authors'] is List && (item['authors'] as List).isNotEmpty) {
+      final authors = item['authors'] as List;
+      final firstAuthor = authors.first;
+      if (firstAuthor is Map) {
+        artist = firstAuthor['author_name'] ?? artist;
+        artistId = firstAuthor['author_id']?.toString() ?? '';
+      }
+    }
+
+    // 解析发布日期
+    String publishDate = '';
+    if (item['publish_date'] != null) {
+      publishDate = item['publish_date'].toString().substring(0, 10); // 只取日期部分
+    }
+
+    return Album(
+      id: item['album_id']?.toString() ?? '',
+      name: item['album_name'] ?? '未知专辑',
+      coverUrl: coverUrl,
+      artist: artist,
+      artistId: artistId,
+      publishDate: publishDate,
+      songCount: item['songcount'] ?? 0,
+      intro: item['intro'] ?? '',
     );
   }
 
@@ -650,5 +991,58 @@ class KugouApiService {
     }
 
     return lyrics;
+  }
+
+  // ========== 排行榜相关 ==========
+
+  /// 获取排行榜信息
+  Future<Rank?> getRankInfo(String rankId) async {
+    try {
+      final response = await _dio.get(
+        '/rank/info',
+        queryParameters: {'rankid': rankId},
+      );
+
+      if (response.data['status'] == 1 && response.data['data'] != null) {
+        return Rank.fromJson(response.data);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('获取排行榜信息失败: $e');
+      return null;
+    }
+  }
+
+  /// 获取排行榜歌曲列表
+  Future<RankSongsResponse?> getRankSongs(
+    String rankId, {
+    String? rankCid,
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'rankid': rankId,
+        'page': page,
+        'pagesize': pageSize,
+      };
+
+      if (rankCid != null) {
+        queryParams['rank_cid'] = rankCid;
+      }
+
+      final response = await _dio.get(
+        '/rank/audio',
+        queryParameters: queryParams,
+      );
+
+      if (response.data['error_code'] == 0 || response.data['status'] == 1) {
+        return RankSongsResponse.fromJson(response.data);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('获取排行榜歌曲列表失败: $e');
+      return null;
+    }
   }
 }

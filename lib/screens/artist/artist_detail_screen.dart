@@ -29,11 +29,11 @@ class ArtistDetailScreen extends StatelessWidget {
               leading: Container(
                 margin: EdgeInsets.all(8.w),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.white.withValues(alpha: 0.5),
                   shape: BoxShape.circle,
                 ),
                 child: IconButton(
-                  icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+                  icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.onSurface),
                   onPressed: () => Navigator.pop(context),
                 ),
               ),
@@ -41,11 +41,11 @@ class ArtistDetailScreen extends StatelessWidget {
                 Container(
                   margin: EdgeInsets.all(8.w),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.white.withValues(alpha: 0.5),
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    icon: const Icon(Icons.more_vert, color: AppColors.onSurface),
                     onPressed: () {},
                   ),
                 ),
@@ -112,21 +112,25 @@ class ArtistDetailScreen extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 20.r,
                       offset: Offset(0, 10.h),
                     ),
                   ],
                 ),
                 child: ClipOval(
-                  child: artist.coverUrl != null
+                  child: (artist.coverUrl != null && artist.coverUrl!.isNotEmpty)
                       ? CachedNetworkImage(
                           imageUrl: artist.coverUrl!,
                           fit: BoxFit.cover,
+                          errorWidget: (context, url, error) => Container(
+                            color: AppColors.surfaceVariant,
+                            child: const Icon(Icons.person, color: AppColors.onSurfaceSecondary, size: 80),
+                          ),
                         )
                       : Container(
                           color: AppColors.surfaceVariant,
-                          child: const Icon(Icons.person, color: Colors.white, size: 80),
+                          child: const Icon(Icons.person, color: AppColors.onSurfaceSecondary, size: 80),
                         ),
                 ),
               ),
@@ -135,7 +139,7 @@ class ArtistDetailScreen extends StatelessWidget {
               Text(
                 artist.name,
                 style: AppTextStyles.headlineMedium.copyWith(
-                  color: Colors.white,
+                  color: AppColors.onSurface,
                 ),
               ),
               SizedBox(height: 8.h),
@@ -163,7 +167,7 @@ class ArtistDetailScreen extends StatelessWidget {
                     child: const Text(
                       '+ 关注',
                       style: TextStyle(
-                        color: Colors.black,
+                        color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
                     ),

@@ -20,7 +20,9 @@ class PlaylistCard extends StatelessWidget {
       onTap: onTap,
       child: SizedBox(
         width: 140.w,
+        child: ClipRect(
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Cover image
@@ -31,7 +33,7 @@ class PlaylistCard extends StatelessWidget {
                 child: Stack(
                   children: [
                     Positioned.fill(
-                      child: playlist.coverUrl != null
+                      child: (playlist.coverUrl != null && playlist.coverUrl!.isNotEmpty)
                           ? CachedNetworkImage(
                               imageUrl: playlist.coverUrl!,
                               width: double.infinity,
@@ -45,6 +47,10 @@ class PlaylistCard extends StatelessWidget {
                                     strokeWidth: 2,
                                   ),
                                 ),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                color: AppColors.surfaceVariant,
+                                child: const Icon(Icons.music_note, color: Colors.white),
                               ),
                             )
                           : Container(
@@ -108,6 +114,7 @@ class PlaylistCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import '../../../../services/api/kugou_api_service.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
+import '../../../../models/banner.dart';
 import '../../../../services/api/kugou_api_service.dart' show RankItem;
 
 /// 首页控制器
@@ -14,6 +15,7 @@ class HomeController extends GetxController {
   final RxList<Playlist> playlists = <Playlist>[].obs;
   final RxList<Song> newSongs = <Song>[].obs;
   final RxList<RankItem> rankList = <RankItem>[].obs;
+  final RxList<BannerItem> banners = <BannerItem>[].obs;
 
   final RxBool isLoading = true.obs;
   final RxString error = ''.obs;
@@ -32,21 +34,25 @@ class HomeController extends GetxController {
     try {
       // 并行加载数据
       final results = await Future.wait([
+        _api.getBanners(),
         _api.getRecommendPlaylists(pagesize: 10),
         _api.getNewSongs(pagesize: 10),
         _api.getRankList(),
       ]);
 
-      // 结果可能返回空列表，需要处理类型
-      final playlistResults = results[0] as List<Playlist>;
-      final songResults = results[1] as List<Song>;
-      final rankResults = results[2] as List<RankItem>;
-
-      playlists.value = playlistResults;
-      newSongs.value = songResults;
-      rankList.value = rankResults;
+      banners.value = results[0] as List<BannerItem>;
+      playlists.value = results[1] as List<Playlist>;
+      newSongs.value = results[2] as List<Song>;
+      rankList.value = results[3] as List<RankItem>;
     } catch (e) {
       error.value = e.toString();
+      Get.snackbar(
+        '加载失败',
+        '请检查网络连接后重试',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.withValues(alpha: 0.8),
+        colorText: Colors.white,
+      );
     } finally {
       isLoading.value = false;
     }
