@@ -5,12 +5,25 @@ import 'package:just_audio/just_audio.dart';
 import '../../../models/song.dart';
 import '../../../theme/theme.dart';
 import '../../../services/api/kugou_api_service.dart';
+import '../../../services/playback/playback_history_service.dart';
 
 /// 播放模式
 enum PlayMode {
   sequential, // 顺序播放
   loop,       // 循环播放
   single,     // 单曲循环
+}
+
+/// 音质选项
+enum AudioQuality {
+  standard(128, '标准音质'),
+  high(320, '高品质'),
+  lossless(999, '无损音质');
+
+  final int quality;
+  final String label;
+
+  const AudioQuality(this.quality, this.label);
 }
 
 /// 播放器控制器 - 使用 GetX 管理
@@ -20,6 +33,12 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
   final AudioPlayer _audioPlayer = AudioPlayer();
   final KugouApiService _api = KugouApiService();
 
+  // 播放历史服务
+  final PlaybackHistoryService _historyService = Get.find<PlaybackHistoryService>();
+
+  // 当前记录到历史的歌曲ID（避免重复记录）
+  String _lastRecordedSongId = '';
+
   // ========== 响应式状态 ==========
 
   // 播放状态
@@ -28,6 +47,9 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
   final Rx<Duration> duration = Duration.zero.obs;
   final Rx<Song?> currentSong = Rx<Song?>(null);
   final Rx<PlayMode> playMode = PlayMode.sequential.obs;
+
+  // 音质设置
+  final Rx<AudioQuality> audioQuality = AudioQuality.standard.obs;
 
   // 播放列表
   final RxList<Song> playlist = <Song>[].obs;
@@ -39,8 +61,16 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
   // 加载状态
   final RxBool isLoadingUrl = false.obs;
 
+  // 手动切歌标志（防止监听器覆盖索引）
+  bool _isManuallySwitching = false;
+
   // 动画控制器
   late AnimationController rotationController;
+  late CurvedAnimation rotationCurve;
+
+  // 旋转状态跟踪
+  double _currentRotationValue = 0.0;
+  bool _isRotating = false;
 
   @override
   void onInit() {
@@ -52,12 +82,19 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
       vsync: this,
     );
 
+    // 创建缓动曲线动画
+    rotationCurve = CurvedAnimation(
+      parent: rotationController,
+      curve: Curves.linear,
+    );
+
     // 监听 just_audio 状态
     _initAudioPlayer();
   }
 
   @override
   void onClose() {
+    rotationCurve.dispose();
     rotationController.dispose();
     _audioPlayer.dispose();
     super.onClose();
@@ -69,16 +106,31 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
     _audioPlayer.playerStateStream.listen((state) {
       isPlaying.value = state.playing;
 
-      // 播放完成时切换下一曲（跳过无法播放的歌曲）
-      if (state.processingState == ProcessingState.completed) {
-        seekToNext();
+      // 当歌曲开始播放时，添加到播放历史
+      if (state.playing && currentSong.value != null) {
+        final songId = currentSong.value!.id;
+        if (songId.isNotEmpty && songId != _lastRecordedSongId) {
+          _lastRecordedSongId = songId;
+          _historyService.addToHistory(currentSong.value!);
+        }
       }
 
-      // 更新旋转动画
-      if (state.playing && !rotationController.isAnimating) {
-        rotationController.repeat();
-      } else if (!state.playing && rotationController.isAnimating) {
-        rotationController.stop();
+      // 播放完成时根据播放模式决定是否切换下一曲
+      if (state.processingState == ProcessingState.completed) {
+        // 单曲循环模式下不切换，其他模式切换到下一首
+        if (playMode.value != PlayMode.single) {
+          seekToNext();
+        } else {
+          // 单曲循环：重新播放当前歌曲
+          play();
+        }
+      }
+
+      // 更新旋转动画 - 平滑启动和停止
+      if (state.playing && !_isRotating) {
+        _startRotation();
+      } else if (!state.playing && _isRotating) {
+        _stopRotation();
       }
     });
 
@@ -97,6 +149,9 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
 
     // 监听当前索引变化
     _audioPlayer.sequenceStateStream.listen((state) {
+      // 手动切歌时不处理，避免覆盖手动设置的索引
+      if (_isManuallySwitching) return;
+
       if (state != null && state.currentIndex >= 0) {
         currentIndex.value = state.currentIndex;
         if (state.currentSource != null) {
@@ -140,155 +195,112 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
     }
   }
 
-  /// 下一曲（跳过无法播放的歌曲）
+  /// 下一曲（手动切换总是支持列表循环）
   Future<void> seekToNext() async {
     if (playlist.isEmpty) return;
+    if (playlist.length == 1) return;
+
+    // 先保存当前索引，避免递归时使用错误的索引
+    final int startIndex = currentIndex.value;
+    int nextIndex = startIndex + 1;
+    if (nextIndex >= playlist.length) {
+      nextIndex = 0;
+    }
 
     // 先停止当前播放
     try {
       await _audioPlayer.stop();
     } catch (_) {}
 
-    int nextIndex = currentIndex.value + 1;
-    int checkedCount = 0;
-    final maxChecks = playlist.length;
+    _isManuallySwitching = true;
 
-    // 循环查找下一首可播放的歌曲
-    while (checkedCount < maxChecks) {
-      // 处理索引越界
-      if (nextIndex >= playlist.length) {
-        if (playMode.value == PlayMode.loop) {
-          nextIndex = 0;
-        } else {
-          break;
-        }
-      }
-
-      final nextSong = playlist[nextIndex];
-
-      // 检查是否是本地歌曲且有音频URL，或者是在线歌曲
-      bool canPlay = false;
-      if (nextSong.isLocal && nextSong.audioUrl != null && nextSong.audioUrl!.isNotEmpty) {
-        canPlay = true;
-      } else if (!nextSong.isLocal && nextSong.id.isNotEmpty) {
-        // 对于在线歌曲，先尝试获取播放链接
-        try {
-          isLoadingUrl.value = true;
-          final url = await _api.getSongUrl(nextSong.id);
-          if (url != null && url.isNotEmpty) {
-            final updatedSong = nextSong.copyWith(audioUrl: url);
-            _updateSongInPlaylist(updatedSong);
-            canPlay = true;
-            // 播放这首歌
-            await _playDirectUrl(updatedSong, url);
-            currentIndex.value = nextIndex;
-            currentSong.value = updatedSong;
-            isLoadingUrl.value = false;
-            return;
-          }
-        } catch (e) {
-          canPlay = false;
-        } finally {
-          isLoadingUrl.value = false;
-        }
-      } else if (nextSong.audioUrl != null && nextSong.audioUrl!.isNotEmpty) {
-        // 使用已有的音频URL
-        canPlay = true;
-        await _playDirectUrl(nextSong, nextSong.audioUrl!);
-        currentIndex.value = nextIndex;
-        currentSong.value = nextSong;
-        return;
-      }
-
-      if (canPlay) {
-        return;
-      }
-
-      // 这首歌无法播放，继续找下一首
-      nextIndex++;
-      checkedCount++;
+    try {
+      await _playSongAtIndex(nextIndex);
+    } finally {
+      _isManuallySwitching = false;
     }
-
-    // 没有找到可播放的歌曲 - 清除播放状态
-    currentSong.value = null;
-    position.value = Duration.zero;
-    duration.value = Duration.zero;
-    isPlaying.value = false;
-    rotationController.stop();
   }
 
-  /// 上一曲
+  /// 上一曲（手动切换总是支持列表循环）
   Future<void> seekToPrevious() async {
     if (playlist.isEmpty) return;
+    if (playlist.length == 1) return;
+
+    // 先保存当前索引
+    final int startIndex = currentIndex.value;
+    int prevIndex = startIndex - 1;
+    if (prevIndex < 0) {
+      prevIndex = playlist.length - 1;
+    }
 
     // 先停止当前播放
     try {
       await _audioPlayer.stop();
     } catch (_) {}
 
-    int prevIndex = currentIndex.value - 1;
-    int checkedCount = 0;
-    final maxChecks = playlist.length;
+    _isManuallySwitching = true;
 
-    // 循环查找上一首可播放的歌曲
-    while (checkedCount < maxChecks) {
-      // 处理索引越界
-      if (prevIndex < 0) {
-        if (playMode.value == PlayMode.loop) {
-          prevIndex = playlist.length - 1;
-        } else {
-          break;
-        }
-      }
-
-      final prevSong = playlist[prevIndex];
-
-      // 检查是否可以播放
-      bool canPlay = false;
-      if (prevSong.isLocal && prevSong.audioUrl != null && prevSong.audioUrl!.isNotEmpty) {
-        canPlay = true;
-      } else if (!prevSong.isLocal && prevSong.id.isNotEmpty) {
-        try {
-          isLoadingUrl.value = true;
-          final url = await _api.getSongUrl(prevSong.id);
-          if (url != null && url.isNotEmpty) {
-            final updatedSong = prevSong.copyWith(audioUrl: url);
-            _updateSongInPlaylist(updatedSong);
-            canPlay = true;
-            await _playDirectUrl(updatedSong, url);
-            currentIndex.value = prevIndex;
-            currentSong.value = updatedSong;
-            isLoadingUrl.value = false;
-            return;
-          }
-        } catch (e) {
-          canPlay = false;
-        } finally {
-          isLoadingUrl.value = false;
-        }
-      } else if (prevSong.audioUrl != null && prevSong.audioUrl!.isNotEmpty) {
-        canPlay = true;
-        await _playDirectUrl(prevSong, prevSong.audioUrl!);
-        currentIndex.value = prevIndex;
-        currentSong.value = prevSong;
-        return;
-      }
-
-      if (canPlay) {
-        return;
-      }
-
-      // 这首歌无法播放，继续找上一首
-      prevIndex--;
-      checkedCount++;
+    try {
+      await _playSongAtIndex(prevIndex);
+    } finally {
+      _isManuallySwitching = false;
     }
+  }
 
-    // 没有找到可播放的歌曲 - 清除播放状态
-    currentSong.value = null;
-    position.value = Duration.zero;
-    duration.value = Duration.zero;
-    isPlaying.value = false;
-    rotationController.stop();
+  /// 播放指定索引的歌曲（内部方法，不处理索引更新）
+  Future<void> _playSongAtIndex(int index) async {
+    if (index < 0 || index >= playlist.length) return;
+
+    final song = playlist[index];
+    // 在这里更新索引，这样监听器就不会覆盖
+    currentIndex.value = index;
+    isLoadingUrl.value = true;
+
+    try {
+      if (song.isLocal && song.audioUrl != null && song.audioUrl!.isNotEmpty) {
+        await _playDirectUrl(song, song.audioUrl!);
+        currentSong.value = song;
+        isLoadingUrl.value = false;
+        return;
+      }
+
+      // 在线歌曲：获取播放链接
+      if (song.id.isNotEmpty) {
+        final url = await _api.getSongUrl(song.id, quality: audioQuality.value.quality);
+        if (url != null && url.isNotEmpty) {
+          final updatedSong = song.copyWith(audioUrl: url);
+          _updateSongInPlaylist(updatedSong);
+          await _playDirectUrl(updatedSong, url);
+          currentSong.value = updatedSong;
+          isLoadingUrl.value = false;
+          return;
+        }
+      }
+
+      // 尝试使用已有的 audioUrl
+      if (song.audioUrl != null && song.audioUrl!.isNotEmpty) {
+        await _playDirectUrl(song, song.audioUrl!);
+        currentSong.value = song;
+        isLoadingUrl.value = false;
+        return;
+      }
+
+      // 无法播放，尝试下一首
+      // 注意：这里直接计算下一首索引，而不是调用 seekToNext
+      // 避免递归时索引混乱
+      final nextIndex = (index + 1) % playlist.length;
+      if (nextIndex != index) {
+        isLoadingUrl.value = false;
+        await _playSongAtIndex(nextIndex);
+      }
+    } catch (e) {
+      isLoadingUrl.value = false;
+      // 播放失败，尝试下一首
+      final nextIndex = (index + 1) % playlist.length;
+      if (nextIndex != index) {
+        await _playSongAtIndex(nextIndex);
+      }
+    }
   }
 
   /// 跳转到指定位置
@@ -322,6 +334,42 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
     }
   }
 
+  /// 设置音质
+  Future<void> setAudioQuality(AudioQuality quality) async {
+    audioQuality.value = quality;
+
+    // 如果当前正在播放，重新获取播放链接
+    if (currentSong.value != null && isPlaying.value) {
+      final song = currentSong.value!;
+      if (!song.isLocal && song.id.isNotEmpty) {
+        try {
+          isLoadingUrl.value = true;
+          final url = await _api.getSongUrl(song.id, quality: quality.quality);
+          if (url != null && url.isNotEmpty) {
+            final currentPosition = position.value;
+            final updatedSong = song.copyWith(audioUrl: url);
+            _updateSongInPlaylist(updatedSong);
+            await _playDirectUrl(updatedSong, url);
+            currentSong.value = updatedSong;
+            await seek(currentPosition);
+          }
+        } catch (e) {
+          _handleError(e);
+        } finally {
+          isLoadingUrl.value = false;
+        }
+      }
+    }
+  }
+
+  /// 切换到下一个音质
+  void switchAudioQuality() {
+    final qualities = AudioQuality.values;
+    final idx = qualities.indexOf(audioQuality.value);
+    final nextIdx = (idx + 1) % qualities.length;
+    setAudioQuality(qualities[nextIdx]);
+  }
+
   /// 播放指定歌曲（主入口）
   Future<void> playSong(Song song, {List<Song>? newPlaylist}) async {
     try {
@@ -333,6 +381,14 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
         playlist.value = newPlaylist;
         // 找到歌曲在列表中的索引
         final index = newPlaylist.indexWhere((s) => s.id == song.id);
+        currentIndex.value = index >= 0 ? index : 0;
+      } else if (playlist.isEmpty) {
+        // 如果没有播放列表且当前列表为空，创建一个只包含当前歌曲的列表
+        playlist.value = [song];
+        currentIndex.value = 0;
+      } else {
+        // 更新当前歌曲在列表中的索引
+        final index = playlist.indexWhere((s) => s.id == song.id);
         if (index >= 0) {
           currentIndex.value = index;
         }
@@ -349,7 +405,7 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
       // 在线歌曲：id 就是 hash，使用它来获取播放链接
       final hash = song.id;
       if (hash.isNotEmpty) {
-        final url = await _api.getSongUrl(hash);
+        final url = await _api.getSongUrl(hash, quality: audioQuality.value.quality);
         if (url != null && url.isNotEmpty) {
           // 更新歌曲的播放链接
           final updatedSong = song.copyWith(audioUrl: url);
@@ -453,16 +509,16 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
 
   // ========== 计算属性 ==========
 
-  /// 是否有下一曲
+  /// 是否有下一曲（手动切换总是支持列表循环）
   bool get hasNext {
     if (playlist.isEmpty) return false;
-    return currentIndex.value < playlist.length - 1 || playMode.value == PlayMode.loop;
+    return playlist.length > 1;
   }
 
-  /// 是否有上一曲
+  /// 是否有上一曲（手动切换总是支持列表循环）
   bool get hasPrevious {
     if (playlist.isEmpty) return false;
-    return currentIndex.value > 0 || playMode.value == PlayMode.loop;
+    return playlist.length > 1;
   }
 
   /// 格式化时间
@@ -540,5 +596,25 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
       backgroundColor: Colors.red.withValues(alpha: 0.8),
       colorText: Colors.white,
     );
+  }
+
+  /// 平滑启动旋转动画
+  void _startRotation() {
+    if (_isRotating) return;
+    _isRotating = true;
+
+    // 从当前位置继续旋转
+    rotationController.value = _currentRotationValue;
+    rotationController.repeat();
+  }
+
+  /// 平滑停止旋转动画
+  void _stopRotation() {
+    if (!_isRotating) return;
+    _isRotating = false;
+
+    // 保存当前位置
+    _currentRotationValue = rotationController.value;
+    rotationController.stop();
   }
 }

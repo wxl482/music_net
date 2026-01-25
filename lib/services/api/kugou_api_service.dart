@@ -8,6 +8,7 @@ import '../../models/album.dart';
 import '../../models/artist.dart';
 import '../../models/banner.dart';
 import '../../models/rank.dart';
+import '../../models/lyric.dart';
 
 // 导出类型别名方便使用
 export '../../models/playlist.dart' show RankItem;
@@ -549,19 +550,61 @@ class KugouApiService {
   }
 
   /// 获取歌词
-  /// GET /lyric?hash=xxx
+  /// 需要先通过 /search/lyric 获取 id 和 accesskey，然后再获取歌词
   Future<String> getLyric([String? hash]) async {
     try {
-      final response = await _dio.get(
-        '/lyric',
-        queryParameters: {'hash': hash ?? ''},
+      if (hash == null || hash.isEmpty) {
+        return '';
+      }
+
+      // 第一步：搜索歌词获取 id 和 accesskey
+      final searchResponse = await _dio.get(
+        '/search/lyric',
+        queryParameters: {'hash': hash},
       );
 
-      if (response.statusCode == 200) {
-        return response.data['data']?['lyrics'] ?? '';
+      if (searchResponse.statusCode != 200 || searchResponse.data['status'] != 200) {
+        return '';
+      }
+
+      final candidates = searchResponse.data['candidates'] as List?;
+      if (candidates == null || candidates.isEmpty) {
+        return '';
+      }
+
+      // 取第一个候选歌词
+      final firstLyric = candidates[0] as Map<String, dynamic>?;
+      if (firstLyric == null) {
+        return '';
+      }
+
+      final id = firstLyric['id']?.toString();
+      final accesskey = firstLyric['accesskey']?.toString();
+
+      if (id == null || id.isEmpty || accesskey == null || accesskey.isEmpty) {
+        return '';
+      }
+
+      // 第二步：使用 id 和 accesskey 获取歌词内容
+      final lyricResponse = await _dio.get(
+        '/lyric',
+        queryParameters: {
+          'id': id,
+          'accesskey': accesskey,
+          'fmt': 'lrc',
+          'decode': 'true',
+        },
+      );
+
+      if (lyricResponse.statusCode == 200 && lyricResponse.data['status'] == 200) {
+        // 返回解码后的歌词内容，直接从根级别获取
+        return lyricResponse.data['decodeContent'] ??
+               lyricResponse.data['content'] ?? '';
       }
     } catch (e) {
-      if (kDebugMode) print('获取歌词失败: $e');
+      if (kDebugMode) {
+        print('获取歌词失败: $e');
+      }
     }
     return '';
   }

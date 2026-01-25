@@ -76,6 +76,8 @@ class _SearchScreenState extends State<SearchScreen>
 
   @override
   Widget build(BuildContext context) {
+    final hasSearchText = _searchController.text.isNotEmpty;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -83,19 +85,28 @@ class _SearchScreenState extends State<SearchScreen>
           children: [
             // 搜索栏
             _buildSearchBar(),
-            // Tab 栏
-            _buildTabBar(),
             // 内容区域
             Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildComprehensiveTab(),
-                  _buildSongsTab(),
-                  _buildArtistsTab(),
-                  _buildAlbumsTab(),
-                ],
-              ),
+              child: hasSearchText
+                  ? Column(
+                      children: [
+                        // Tab 栏
+                        _buildTabBar(),
+                        // 搜索结果
+                        Expanded(
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              _buildComprehensiveTab(),
+                              _buildSongsTab(),
+                              _buildArtistsTab(),
+                              _buildAlbumsTab(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : _buildHotSearchContent(),
             ),
           ],
         ),
@@ -138,6 +149,7 @@ class _SearchScreenState extends State<SearchScreen>
                       controller: _searchController,
                       style: AppTextStyles.bodyMedium,
                       textInputAction: TextInputAction.search,
+                      onChanged: (value) => setState(() {}),
                       onSubmitted: (value) => _performSearch(value),
                       decoration: InputDecoration(
                         hintText: '搜索歌曲、歌手、专辑',
@@ -879,6 +891,95 @@ class _SearchScreenState extends State<SearchScreen>
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// 热搜内容区域
+  Widget _buildHotSearchContent() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: 16.w),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(height: 16.h),
+          // 热搜标题
+          Row(
+            children: [
+              Icon(
+                Icons.local_fire_department,
+                color: AppColors.primary,
+                size: 20.sp,
+              ),
+              SizedBox(width: 8.w),
+              Text(
+                '热搜榜',
+                style: AppTextStyles.titleLarge,
+              ),
+            ],
+          ),
+          SizedBox(height: 16.h),
+          // 热搜列表
+          FutureBuilder<List<String>>(
+            future: _onlineController.fetchHotSearch(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.primary,
+                  ),
+                );
+              }
+
+              final hotKeywords = snapshot.data!;
+
+              if (hotKeywords.isEmpty) {
+                return Center(
+                  child: Text(
+                    '暂无热搜数据',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.onSurfaceSecondary,
+                    ),
+                  ),
+                );
+              }
+
+              return Wrap(
+                spacing: 12.w,
+                runSpacing: 12.h,
+                children: hotKeywords.map((keyword) {
+                  return _buildHotSearchChip(keyword);
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 热搜标签
+  Widget _buildHotSearchChip(String keyword) {
+    return GestureDetector(
+      onTap: () {
+        _searchController.text = keyword;
+        _performSearch(keyword);
+      },
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 10.h),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceVariant.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(20.r),
+          border: Border.all(
+            color: AppColors.onSurfaceSecondary.withValues(alpha: 0.2),
+            width: 0.5,
+          ),
+        ),
+        child: Text(
+          keyword,
+          style: AppTextStyles.bodyMedium,
         ),
       ),
     );

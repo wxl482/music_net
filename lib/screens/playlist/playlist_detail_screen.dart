@@ -205,16 +205,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           SliverAppBar(
                       backgroundColor: Colors.transparent,
                       elevation: 0,
-                      leading: Container(
-                        margin: EdgeInsets.all(8.w),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.3),
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.onSurface),
-                          onPressed: () => Navigator.pop(context),
-                        ),
+                      leading: IconButton(
+                        icon: const Icon(Icons.arrow_back_ios, color: AppColors.onSurface),
+                        onPressed: () => Navigator.pop(context),
                       ),
                     ),
                     // 歌单头部信息

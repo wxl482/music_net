@@ -39,6 +39,8 @@ class PlaylistCard extends StatelessWidget {
                               width: double.infinity,
                               height: double.infinity,
                               fit: BoxFit.cover,
+                              fadeInDuration: const Duration(milliseconds: 400),
+                              fadeOutDuration: const Duration(milliseconds: 200),
                               placeholder: (context, url) => Container(
                                 color: AppColors.surfaceVariant,
                                 child: const Center(

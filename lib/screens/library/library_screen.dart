@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:get/get.dart';
 import '../../theme/theme.dart';
+import '../../app.dart';
+import '../../services/playback/playback_history_service.dart';
+import '../../modules/player/player_controller/player_controller.dart';
 import 'local_music_screen.dart';
 
 class LibraryScreen extends StatelessWidget {
@@ -264,33 +268,107 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _buildRecentTab() {
-    final recentItems = List.generate(10, (index) => index);
+    final historyService = Get.find<PlaybackHistoryService>();
+    final playerController = Get.find<PlayerController>();
 
-    return ListView.builder(
-      padding: EdgeInsets.all(16.w),
-      itemCount: recentItems.length,
-      itemBuilder: (context, index) {
-        return ListTile(
-          contentPadding: EdgeInsets.symmetric(vertical: 4.h),
-          leading: Container(
-            width: 48.w,
-            height: 48.w,
-            decoration: BoxDecoration(
-              color: AppColors.surfaceVariant,
-              borderRadius: BorderRadius.circular(8.r),
-            ),
-            child: const Icon(Icons.history, color: Colors.white),
-          ),
-          title: Text('最近播放 $index', style: AppTextStyles.titleMedium),
-          subtitle: Text('歌手', style: AppTextStyles.bodySmall),
-          trailing: Text(
-            '${index + 1}小时前',
-            style: AppTextStyles.bodySmall.copyWith(
-              color: AppColors.onSurfaceSecondary,
-            ),
+    return Obx(() {
+      final history = historyService.history;
+
+      if (history.isEmpty) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.history,
+                size: 64.sp,
+                color: AppColors.onSurfaceSecondary,
+              ),
+              SizedBox(height: 16.h),
+              Text(
+                '暂无播放历史',
+                style: AppTextStyles.bodyLarge.copyWith(
+                  color: AppColors.onSurfaceSecondary,
+                ),
+              ),
+              SizedBox(height: 8.h),
+              Text(
+                '播放歌曲后会显示在这里',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.onSurfaceSecondary,
+                ),
+              ),
+            ],
           ),
         );
-      },
-    );
+      }
+
+      return Column(
+        children: [
+          // 查看全部按钮
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+            child: Row(
+              children: [
+                Text(
+                  '最近播放',
+                  style: AppTextStyles.titleLarge,
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Get.toNamed(AppRoutes.history),
+                  child: Text(
+                    '查看全部 >',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 最近播放列表（只显示前10首）
+          Expanded(
+            child: ListView.builder(
+              padding: EdgeInsets.symmetric(horizontal: 16.w),
+              itemCount: history.length > 10 ? 10 : history.length,
+              itemBuilder: (context, index) {
+                final song = history[index];
+                return ListTile(
+                  contentPadding: EdgeInsets.symmetric(vertical: 4.h),
+                  leading: Container(
+                    width: 48.w,
+                    height: 48.w,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(8.r),
+                    ),
+                    child: const Icon(Icons.music_note, color: Colors.white),
+                  ),
+                  title: Text(
+                    song.title,
+                    style: AppTextStyles.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    song.artist,
+                    style: AppTextStyles.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Icon(
+                    Icons.play_circle_outline,
+                    color: AppColors.primary,
+                    size: 28.sp,
+                  ),
+                  onTap: () => playerController.playSong(song),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    });
   }
 }

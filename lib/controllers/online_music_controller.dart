@@ -4,6 +4,7 @@ import '../models/song.dart';
 import '../models/playlist.dart';
 import '../models/album.dart';
 import '../models/artist.dart';
+import '../models/lyric.dart';
 import '../services/api/kugou_api_service.dart';
 
 /// 在线音乐控制器 - 使用 GetX 管理在线音乐状态

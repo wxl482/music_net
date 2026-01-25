@@ -2,6 +2,7 @@ import 'package:get/get.dart';
 import '../controllers/local_music_controller.dart';
 import '../controllers/online_music_controller.dart';
 import '../modules/player/player_controller/player_controller.dart';
+import '../services/playback/playback_history_service.dart';
 
 /// 全局依赖注入绑定
 class GlobalBinding extends Bindings {
@@ -15,5 +16,8 @@ class GlobalBinding extends Bindings {
 
     // 在线音乐控制器
     Get.lazyPut<OnlineMusicController>(() => OnlineMusicController(), fenix: true);
+
+    // 播放历史服务
+    Get.lazyPut<PlaybackHistoryService>(() => PlaybackHistoryService(), fenix: true);
   }
 }

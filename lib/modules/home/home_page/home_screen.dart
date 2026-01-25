@@ -46,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onRefresh: controller.refreshData,
                     color: AppColors.primary,
                     child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -339,6 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ListView.builder(
               shrinkWrap: true,
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
               padding: EdgeInsets.symmetric(horizontal: 16.w),
               itemCount: playlists.length,
               itemBuilder: (context, index) {
@@ -388,7 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: EdgeInsets.symmetric(horizontal: 16.w),
             itemCount: songs.length,
             itemBuilder: (context, index) {
-              return _buildSongListItem(context, songs[index], index + 1);
+              return _buildSongListItem(context, songs[index], index + 1, songs);
             },
           ),
         ],
@@ -397,10 +399,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Apple Music 风格歌曲列表项
-  Widget _buildSongListItem(BuildContext context, Song song, int index) {
+  Widget _buildSongListItem(BuildContext context, Song song, int index, List<Song> songs) {
     return GestureDetector(
       onTap: () async {
-        await _playSong(song, _getSampleSongs());
+        await _playSong(song, songs);
       },
       child: Container(
         margin: EdgeInsets.symmetric(vertical: 6.h),
@@ -436,6 +438,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? CachedNetworkImage(
                         imageUrl: song.coverUrl!,
                         fit: BoxFit.cover,
+                        fadeInDuration: const Duration(milliseconds: 400),
+                        fadeOutDuration: const Duration(milliseconds: 200),
                         errorWidget: (context, url, error) => Container(
                           color: AppColors.surfaceVariant,
                           child: const Icon(Icons.music_note, color: AppColors.onSurfaceTertiary, size: 20),

@@ -60,6 +60,8 @@ class SongItem extends StatelessWidget {
                           width: 48.w,
                           height: 48.w,
                           fit: BoxFit.cover,
+                          fadeInDuration: const Duration(milliseconds: 400),
+                          fadeOutDuration: const Duration(milliseconds: 200),
                           errorWidget: (context, url, error) => Container(
                             width: 48.w,
                             height: 48.w,

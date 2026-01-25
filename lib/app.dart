@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:audio_service/audio_service.dart';
 import 'theme/theme.dart';
 import 'screens/main_screen.dart';
 import 'screens/rank/rank_detail_screen.dart';
+import 'screens/history/playback_history_screen.dart';
 import 'modules/player/player_page/player_screen.dart';
 import 'modules/player/player_page/bindings/player_binding.dart';
 import 'bindings/global_binding.dart';
@@ -28,10 +30,13 @@ class AppRoutes {
   static const String artistDetail = '/artist/:id';
   static const String albumDetail = '/album/detail';
   static const String rankDetail = '/rank/:id';
+  static const String history = '/history';
 }
 
 class App extends StatelessWidget {
-  const App({super.key});
+  final BaseAudioHandler audioHandler;
+
+  const App({super.key, required this.audioHandler});
 
   @override
   Widget build(BuildContext context) {
@@ -56,12 +61,23 @@ class App extends StatelessWidget {
               name: AppRoutes.player,
               page: () => const PlayerScreen(),
               binding: PlayerBinding(),
+              transition: Transition.downToUp,
+              transitionDuration: const Duration(milliseconds: 400),
+              curve: Curves.easeOutCubic,
             ),
             GetPage(
               name: AppRoutes.rankDetail,
               page: () => RankDetailScreen(
                 rankId: Get.arguments as String? ?? '',
               ),
+              transition: Transition.cupertino,
+              transitionDuration: const Duration(milliseconds: 350),
+            ),
+            GetPage(
+              name: AppRoutes.history,
+              page: () => const PlaybackHistoryScreen(),
+              transition: Transition.cupertino,
+              transitionDuration: const Duration(milliseconds: 350),
             ),
           ],
         );
