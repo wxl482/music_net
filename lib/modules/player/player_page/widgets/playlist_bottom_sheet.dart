@@ -39,6 +39,7 @@ class PlaylistBottomSheet extends StatelessWidget {
             // 播放列表
             Expanded(
               child: ListView.builder(
+                physics: const BouncingScrollPhysics(),
                 itemCount: playlist.length,
                 itemBuilder: (context, index) {
                   final song = playlist[index];
