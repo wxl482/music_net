@@ -44,3 +44,25 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 cloud_net_music/
+
+# Android
+android/.gradle/
+android/app/src/main/java/
+android/app/src/main/res/xml/
+android/gradle/wrapper/gradle-wrapper.jar
+android/gradlew
+android/gradlew.bat
+android/local.properties
+
+# iOS
+ios/Podfile.lock
+ios/.symlinks/
+ios/Pods/
+ios/Flutter/
+ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+ios/Runner/GeneratedPluginRegistrant.h
+ios/Runner/GeneratedPluginRegistrant.m
+
+# Flutter
+devtools_options.yaml
+pubspec.lock
