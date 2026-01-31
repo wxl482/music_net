@@ -252,35 +252,40 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
     if (index < 0 || index >= playlist.length) return;
 
     final song = playlist[index];
+    // 预处理封面 URL
+    final processedSong = _preprocessSongCover(song);
+
     // 在这里更新索引，这样监听器就不会覆盖
     currentIndex.value = index;
     isLoadingUrl.value = true;
 
+    // 【关键修复】立即更新 currentSong，确保切歌动画时能立即显示新封面
+    currentSong.value = processedSong;
+
     try {
-      if (song.isLocal && song.audioUrl != null && song.audioUrl!.isNotEmpty) {
-        await _playDirectUrl(song, song.audioUrl!);
-        currentSong.value = song;
+      if (processedSong.isLocal && processedSong.audioUrl != null && processedSong.audioUrl!.isNotEmpty) {
+        await _playDirectUrl(processedSong, processedSong.audioUrl!);
+        _updateSongInPlaylist(processedSong);
         isLoadingUrl.value = false;
         return;
       }
 
       // 在线歌曲：获取播放链接
-      if (song.id.isNotEmpty) {
-        final url = await _api.getSongUrl(song.id, quality: audioQuality.value.quality);
+      if (processedSong.id.isNotEmpty) {
+        final url = await _api.getSongUrl(processedSong.id, quality: audioQuality.value.quality);
         if (url != null && url.isNotEmpty) {
-          final updatedSong = song.copyWith(audioUrl: url);
+          final updatedSong = processedSong.copyWith(audioUrl: url);
           _updateSongInPlaylist(updatedSong);
           await _playDirectUrl(updatedSong, url);
-          currentSong.value = updatedSong;
           isLoadingUrl.value = false;
           return;
         }
       }
 
       // 尝试使用已有的 audioUrl
-      if (song.audioUrl != null && song.audioUrl!.isNotEmpty) {
-        await _playDirectUrl(song, song.audioUrl!);
-        currentSong.value = song;
+      if (processedSong.audioUrl != null && processedSong.audioUrl!.isNotEmpty) {
+        await _playDirectUrl(processedSong, processedSong.audioUrl!);
+        _updateSongInPlaylist(processedSong);
         isLoadingUrl.value = false;
         return;
       }
@@ -376,39 +381,49 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
       errorMessage.value = '';
       isLoadingUrl.value = true;
 
+      // 预处理封面 URL：替换 {size} 占位符
+      final processedSong = _preprocessSongCover(song);
+
+      // 【关键修复】立即更新 currentSong，确保播放器页面打开时能显示封面
+      currentSong.value = processedSong;
+
       // 如果有新播放列表，先更新播放列表
       if (newPlaylist != null && newPlaylist.isNotEmpty) {
-        playlist.value = newPlaylist;
+        // 预处理播放列表中所有歌曲的封面 URL
+        final processedPlaylist = newPlaylist.map((s) => _preprocessSongCover(s)).toList();
+        playlist.value = processedPlaylist;
         // 找到歌曲在列表中的索引
-        final index = newPlaylist.indexWhere((s) => s.id == song.id);
+        final index = processedPlaylist.indexWhere((s) => s.id == processedSong.id);
         currentIndex.value = index >= 0 ? index : 0;
       } else if (playlist.isEmpty) {
         // 如果没有播放列表且当前列表为空，创建一个只包含当前歌曲的列表
-        playlist.value = [song];
+        playlist.value = [processedSong];
         currentIndex.value = 0;
       } else {
         // 更新当前歌曲在列表中的索引
-        final index = playlist.indexWhere((s) => s.id == song.id);
+        final index = playlist.indexWhere((s) => s.id == processedSong.id);
         if (index >= 0) {
           currentIndex.value = index;
         }
+        // 更新播放列表中的当前歌曲
+        _updateSongInPlaylist(processedSong);
       }
 
       // 如果是本地歌曲（有 audioUrl），直接播放
-      if (song.isLocal && song.audioUrl != null && song.audioUrl!.isNotEmpty) {
-        await _playDirectUrl(song, song.audioUrl!);
-        currentSong.value = song;
+      if (processedSong.isLocal && processedSong.audioUrl != null && processedSong.audioUrl!.isNotEmpty) {
+        await _playDirectUrl(processedSong, processedSong.audioUrl!);
+        currentSong.value = processedSong;
         isLoadingUrl.value = false;
         return;
       }
 
       // 在线歌曲：id 就是 hash，使用它来获取播放链接
-      final hash = song.id;
+      final hash = processedSong.id;
       if (hash.isNotEmpty) {
         final url = await _api.getSongUrl(hash, quality: audioQuality.value.quality);
         if (url != null && url.isNotEmpty) {
           // 更新歌曲的播放链接
-          final updatedSong = song.copyWith(audioUrl: url);
+          final updatedSong = processedSong.copyWith(audioUrl: url);
           // 更新播放列表中的歌曲
           _updateSongInPlaylist(updatedSong);
           // 更新 currentSong 为包含 audioUrl 的版本
@@ -420,9 +435,9 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
       }
 
       // 如果没有获取到播放链接，尝试使用现有的 audioUrl
-      if (song.audioUrl != null && song.audioUrl!.isNotEmpty) {
-        await _playDirectUrl(song, song.audioUrl!);
-        currentSong.value = song;
+      if (processedSong.audioUrl != null && processedSong.audioUrl!.isNotEmpty) {
+        await _playDirectUrl(processedSong, processedSong.audioUrl!);
+        currentSong.value = processedSong;
         isLoadingUrl.value = false;
         return;
       }
@@ -482,11 +497,14 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
     try {
       errorMessage.value = '';
 
-      // 更新播放列表状态
-      playlist.value = List.from(songs); // 创建新列表
-      currentIndex.value = startIndex.clamp(0, songs.length - 1);
+      // 预处理所有歌曲的封面 URL
+      final processedSongs = songs.map((s) => _preprocessSongCover(s)).toList();
 
-      final song = songs[currentIndex.value];
+      // 更新播放列表状态
+      playlist.value = processedSongs;
+      currentIndex.value = startIndex.clamp(0, processedSongs.length - 1);
+
+      final song = processedSongs[currentIndex.value];
 
       // 播放指定的歌曲
       await playSong(song);
@@ -616,5 +634,21 @@ class PlayerController extends GetxController with GetSingleTickerProviderStateM
     // 保存当前位置
     _currentRotationValue = rotationController.value;
     rotationController.stop();
+  }
+
+  /// 预处理歌曲封面 URL：替换 {size} 占位符
+  /// 解决刚进入播放页面时封面无法加载的问题
+  Song _preprocessSongCover(Song song) {
+    if (song.coverUrl == null || song.coverUrl!.isEmpty) {
+      return song;
+    }
+
+    // 如果封面 URL 包含 {size} 占位符，替换为合适的尺寸
+    if (song.coverUrl!.contains('{size}')) {
+      final processedUrl = song.coverUrl!.replaceAll('{size}', '500');
+      return song.copyWith(coverUrl: processedUrl);
+    }
+
+    return song;
   }
 }

@@ -155,7 +155,12 @@ class _AlbumArtWidgetState extends State<AlbumArtWidget>
             AnimatedBuilder(
               animation: _slideAnimation,
               builder: (context, child) {
-                // 下一曲：旧唱片从0滑到-350.w（左出），新唱片从350.w滑到0（右入）
+                // 首次进入时（没有旧歌曲），直接在中央显示，不应用滑动动画
+                if (_oldSong == null) {
+                  return _buildVinylRecord(widget.song, isNewTrack: false);
+                }
+
+                // 切歌时：下一曲：旧唱片从0滑到-350.w（左出），新唱片从350.w滑到0（右入）
                 // 上一曲：旧唱片从0滑到350.w（右出），新唱片从-350.w滑到0（左入）
                 final double spacing = 50.w; // 间距
                 final double distance = 300.w + spacing;
@@ -301,10 +306,15 @@ class _AlbumArtWidgetState extends State<AlbumArtWidget>
   }
 
   Widget _buildCoverImageForSong(Song song) {
+    // 调试：打印歌曲信息和封面 URL
+    debugPrint('[AlbumArt] Song: ${song.title} - ${song.artist}');
+    debugPrint('[AlbumArt] CoverUrl: ${song.coverUrl}');
+
     // 检查是否有有效的封面 URL
     final hasValidCover = song.coverUrl != null && song.coverUrl!.isNotEmpty;
 
     if (!hasValidCover) {
+      debugPrint('[AlbumArt] No valid cover URL, using default');
       return _buildDefaultCover();
     }
 
@@ -316,6 +326,7 @@ class _AlbumArtWidgetState extends State<AlbumArtWidget>
         height: 200.w,
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
+          debugPrint('[AlbumArt] Failed to load local image: $error');
           return _buildDefaultCover();
         },
       );
@@ -326,20 +337,35 @@ class _AlbumArtWidgetState extends State<AlbumArtWidget>
 
     // 如果 URL 包含 {size} 占位符，替换为大尺寸
     if (coverUrl.contains('{size}')) {
+      debugPrint('[AlbumArt] URL contains {size}, replacing...');
       coverUrl = ImageUtils.replaceImageSize(coverUrl, 500);
+      debugPrint('[AlbumArt] URL after replacement: $coverUrl');
     }
+
+    debugPrint('[AlbumArt] Loading cover: $coverUrl');
 
     return CachedNetworkImage(
       imageUrl: coverUrl,
       width: 200.w,
       height: 200.w,
       fit: BoxFit.cover,
-      placeholder: (context, url) => _buildDefaultCover(),
-      errorWidget: (context, url, error) => _buildDefaultCover(),
+      placeholder: (context, url) {
+        debugPrint('[AlbumArt] Loading placeholder for: $url');
+        return _buildDefaultCover();
+      },
+      errorWidget: (context, url, error) {
+        debugPrint('[AlbumArt] Failed to load cover: $url');
+        debugPrint('[AlbumArt] Error: $error');
+        debugPrint('[AlbumArt] Error type: ${error.runtimeType}');
+        return _buildDefaultCover();
+      },
       memCacheWidth: 500,
       memCacheHeight: 500,
       maxWidthDiskCache: 800,
       maxHeightDiskCache: 800,
+      httpHeaders: const {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      },
     );
   }
 

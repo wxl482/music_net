@@ -755,9 +755,24 @@ class KugouApiService {
     String album = item['album_name'] ?? item['AlbumName'] ?? item['albumname'] ?? '未知专辑';
 
     // 处理封面图片 URL，替换 {size} 占位符
-    String? coverUrl = item['album_sizable_cover'] ?? item['Image'] ?? item['image'] ?? transParam['union_cover'];
+    String? coverUrl = item['album_sizable_cover']
+        ?? item['album_img']
+        ?? item['Image']
+        ?? item['image']
+        ?? item['imgurl']
+        ?? item['cover']
+        ?? item['album_cover']
+        ?? transParam['union_cover']
+        ?? transParam['cover'];
     if (coverUrl != null && coverUrl.contains('{size}')) {
-      coverUrl = coverUrl.replaceAll('{size}', '150');
+      coverUrl = coverUrl.replaceAll('{size}', '300');
+    }
+
+    // 调试：如果封面 URL 为空，打印日志
+    if (kDebugMode && (coverUrl == null || coverUrl.isEmpty)) {
+      print('[API] Song $title has no cover URL. Available keys: ${item.keys.join(', ')}');
+      // 使用默认封面
+      coverUrl = 'https://imge.kugou.com/stdmusic/20140314/20140314213726286545.jpg';
     }
 
     // 解析时长 - 支持多种格式
